@@ -1,0 +1,89 @@
+SECTION 1: The state of the art.
+
+According to our latest implementation and conversations,
+an implementation non-specific list of objects required
+for Arxana would be something like this:
+
+strings
+ -- text without stated interpretation
+
+places
+ -- a list of pointers to system objects
+
+triples
+ -- a list of ordered triples comprised of system objects
+
+theories
+ -- arbitrary collections of system objects
+
+timelines (new)
+ -- ordered lists of system objects
+
+But wait a second -- and notice that, at least initially,
+there appears to be some redundancy among
+
+  places, theories, and timelines.
+
+Each of these data types somehow presents the idea of an
+"arbitrary collection of system objects".
+
+
+SECTION 2: More artful, less arcane.
+
+Why not just have one List of Lists?  We could have a
+convention that the first such list is called "places".
+Something to consider.
+
+Now, the one reason that (in our latest implementation) a
+theory is not really an arbitrary list of objects is that
+we were handling "type" in a special way.  Specifically,
+each theory became a small "microcosm" of the larger
+database, with its own tables of strings and triples and
+so forth.  But why do it that way?  Why not just have our
+basic objects be:
+
+strings
+ -- text without stated interpretation
+
+triples
+ -- a list of ordered triples comprised of system objects
+
+lists
+ -- each list has a head (arbitrary string) and
+    subsequent elements are of the form
+    (position, type, id).
+
+We can then easily extract all the elements of a list that
+are of a given type, just by filtering on the 'type'
+parameter.
+
+For example, given
+
+TYPECODES
+0 strings
+1 triples
+2 lists
+
+The pair (2, 3) would then point at the THIRD LIST.
+
+We would also like a convention for pointing at specific
+elements of lists, but that's easy: the triple (2, 3, 5)
+can point at the ITEM IN THE FIFTH POSITION OF THE THIRD
+LIST.
+
+So, to conclude, lists are arbitrary ordered collections
+that can contain other arbitrary ordered collections as
+subelements.
+
+FOOTNOTE:
+
+It might be mathematically cute to have typecodes as
+follows:
+
+TYPECODES
+0 lists
+1 strings
+2 pairs  (a popular data type we've just ignored...)
+3 triples
+.........
+n ntuples

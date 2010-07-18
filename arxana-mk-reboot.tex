@@ -1,0 +1,4026 @@
+%;; arxana.tex                   -*- mode: Emacs-Lisp; -*-
+%;; Copyright (C) 2005-2009 Joe Corneli <holtzermann17@gmail.com>
+%;; DISOWNED! THIS FILE IS PUBLIC DOMAIN. DO WHAT YOU WILL!
+
+% (progn
+%   (find-file "~/arxana.tex")
+%   (save-excursion
+%     (goto-char (point-max))
+%     (let ((beg (progn (search-backward "\\begin{verbatim}")
+%                       (match-end 0)))
+%           (end (progn (search-forward "\\end{verbatim}")
+%                       (match-beginning 0))))
+%       (eval-region beg end)
+%       (lit-process))))
+
+%%% Commentary:
+
+%% To load: remove %'s above and evaluate with C-x C-e.
+
+%% Alternatively, run this:
+% head -n 13 arxana.tex | sed -e "/%/s///" > arxana-loader.el
+%% on the command line to produce something you can use
+%% to load Arxana when you start Emacs:
+% emacs -l arxana-loader.el
+
+%% Or put the expression in your ~/.emacs (perhaps wrapped
+%% in function like `eval-arxana').
+
+%% Or search for a similar form below and evaluate there!
+
+%% Q.  Where exactly are we supposed to store the most
+%% up-to-date Arxana files when they are ready to go?
+
+%% A.  Copy them into /usr/lib/sbcl/site-systems/arxana/
+%% and that should be enough.  Make sure that arxana.asd
+%% is in that directory and that you have a symbolic link,
+%% made via
+
+%% ln -s ./arxana/arxana.asd .
+
+%% in the directory /usr/lib/sbcl/site-systems/
+%% -- Make sure to load once as root to generate new fasls.
+
+%% Q. How to run the remote slime after that?
+
+%% A. Make sure that Emacs `slime-protocol-version' matches
+%% Common Lisp's `swank::*swank-wire-protocol-version*', then,
+%% like this:
+
+%% ssh -L 4005:127.0.0.1:4005 joe@li23-125.members.linode.com
+%% linode$ sbcl
+%% M-x slime-connect RET RET
+
+%%% Code:
+
+\documentclass{article}
+
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{verbatim}
+
+\newcommand{\meta}[1]{$\langle${\it #1}$\rangle$}
+
+\theoremstyle{definition}
+\newtheorem{nota}{Note}[section]
+
+\parindent = 1.2em
+
+\newenvironment{notate}[1]
+  {\begin{nota}[{\bf {\em #1}}]}%
+  {\end{nota}}
+
+\makeatletter
+\newenvironment{elisp}
+  {\let\ORGverbatim@font\verbatim@font
+   \def\verbatim@font{\ttfamily\scshape}%
+   \verbatim}
+  {\endverbatim
+  \let\verbatim@font\ORGverbatim@font}
+\makeatother
+
+\makeatletter
+\newenvironment{common}[1]
+  {\let\ORGverbatim@font\verbatim@font
+   \def\verbatim@font{\ttfamily\scshape}%
+   \verbatim}
+  {\endverbatim
+  \let\verbatim@font\ORGverbatim@font}
+\makeatother
+
+\makeatletter
+\newenvironment{idea}
+  {\let\ORGverbatim@font\verbatim@font
+   \def\verbatim@font{\ttfamily\slshape}%
+   \verbatim}
+  {\endverbatim
+  \let\verbatim@font\ORGverbatim@font}
+\makeatother
+
+\begin{document}
+
+\title{\emph{Arxana}}
+
+\author{Joseph Corneli\thanks{Copyright (C) 2005-2010
+    Joseph Corneli {\tt <holtzermann17@gmail.com>}\newline
+    $\longrightarrow$ transferred to the public domain.}}
+\date{Last revised: \today}
+
+\maketitle
+
+\abstract{A tool for building hackable semantic hypertext
+  platforms.  Source code and mailing lists are at {\tt
+    http://common-lisp.net/project/arxana}.}
+
+\tableofcontents
+
+\section{Introduction}
+
+\begin{notate}{What is ``Arxana''?} \label{arxana}
+\emph{Arxana} is the name of a ``next generation''
+hypertext system that emphasizes annotation.  Every object
+in this system is annotatable.  Because of this, I
+sometimes call Arxana's core ``the scholium system'', but
+the name ``Arxana'' better reflects our aim: to explore
+the mysterious world of links, attachments,
+correspondences, and side-effects.
+\end{notate}
+
+\begin{notate}{The idea} \label{theoretical-context}
+A scholia-based document model for commons-based peer
+production will inform the development of our
+system.\footnote{{\tt
+http://www.metascholar.org/events/2005/freeculture/viewabstract.php?id=19
+% alternate:
+% http://br.endernet.org/~akrowne/planetmath/papers/corneli\_fcdl/corneli-krowne.pdf
+\label{corneli-krowne}
+}}
+In this model, texts are made up of smaller texts until
+you get to atomic texts; user actions are built in the
+same way.  Multiple users should interact with a shared
+persistent data-store, through functional annotation, not
+destructive modification.  We should pursue the
+asynchronous interaction model until we arrive at live,
+synchronous, settings, where we facilitate real-time
+computer-mediated interactions between users, and between
+users and running hackable programs.
+\end{notate}
+
+\begin{notate}{The data model} \label{data-model}
+Start by storing a collection of \emph{strings}.  Now add
+in \emph{pairs} and \emph{triples} which point at 2 and 3
+objects respectively.  (We can extend to n-tuples if that
+turns out to be convenient.)  Finally, we will maintain a
+collection of \emph{lists}, each of which points at an
+unlimited number of objects.
+\end{notate}
+
+\begin{notate}{History}
+Thinking about how to improve existing systems for
+peer-based collaboration in 2004, I designed a simple
+version of the scholium system that treated textual
+commentary and markup as scholia.\footnote{{\tt
+    http://wiki.planetmath.org/AsteroidMeta/old\_draft\_of\_scholium\_system}}
+In 2006, I put together a single-user version of this
+system that ran exclusively under Emacs.\footnote{{\tt
+    http://metameso.org/files/sbdm4cbpp.tex} \label{old-version}}
+The current system is an almost-completely rewritten
+variant, bringing in a shared database and various other
+enhancements to support multi-user interaction.
+\end{notate}
+
+\begin{notate}{A brisk review of the programming literature} \label{prog-lit-review}
+Many years before I started working on this project, there
+was something called the Emacs HyperText
+System.\footnote{{\tt
+    http://www.aue.aau.dk/\~{}kock/Publications/HyperBase/}}
+What we're doing here updates for modern database methods,
+uses a more interesting data storage format, and also
+considers multiple front-ends to the same database (for
+example, a web interface).
+
+Contemporary Emacs-based hypertext creation systems
+include Muse and Emacs Wiki.\footnote{{\tt
+    http://mwolson.org/projects/EmacsMuse.html}}$^,$\footnote{{\tt
+    http://mwolson.org/projects/EmacsWiki.html}} The
+browsing side features old standbys, Info and
+Emacs/w3m\footnote{Not to be confused with Emacs-w3m,
+  which is not entirely ``Emacs-based''.}.  These packages
+provide ways to author or view what what we should now
+call ``traditional'' hypertext documents.
+
+An another legacy tool worth mentioning is
+HyperCard\footnote{{\tt
+    http://en.wikipedia.org/wiki/HyperCard}}.  This system
+was oriented around the idea of using hypertext to create
+software, a vision we share, but like just about everyone
+else working in the field at the time, it used
+uni-directional links.
+
+Hypertext \emph{nouveau} is based on semantic triples.
+The Semantic Web standard provides one specification of
+the features we can expect from triples.\footnote{{\tt
+    http://www.w3.org/TR/2004/REC-rdf-primer-20040210/}}
+Triples provide a framework for knowledge representation
+with more depth and flexibility than the popular
+``tagging'' methodology.  For example, suitable
+collections of triples implement AI-style ``frames''.  The
+idea of using triples to organize archival material is
+generating some interest as Semantic Web ideas
+spread.\footnote{Cf. recent museum and library
+  conferences}$^,$\footnote{Even among academic computer
+  scientists! (Josh Grochow, p.c.)}
+
+An abstractly similar project to Arxana with some grand
+goals is being developed by Chris Hanson at MIT under the
+name ``Web-scale Environments for Deduction
+Systems''.\footnote{{\tt
+    http://publications.csail.mit.edu/abstracts/abstracts07/cph2/cph2.html}}
+
+Another technically similar project is Freebase, a hand
+rolled database of open content, organized on frame-based,
+triple driven, principles.  The developer of the Freebase
+graphd database has some interesting things to say about
+old and new ways of handling triples.\footnote{{\tt
+    http://blog.freebase.com/2008/04/09/a-brief-tour-of-graphd/}}
+\end{notate}
+
+\begin{notate}{Fitting in}
+My current development goal is to use this system to
+create a more flexible multiuser interaction platform than
+those currently available to web-based collaborative
+projects (such as PlanetMath\footnote{{\tt
+    http://planetmath.org}}).  As an intermediate stage,
+I'm using Arxana to help organize material for a book I'm
+writing.  Arxana's theoretical generality, active
+development status, detailed documentation, and
+superlatively liberal terms of use may make it an
+attractive option for you to try as well!
+\end{notate}
+
+\begin{notate}{What you get}
+Arxana has an Emacs frontend, a Common Lisp middle-end,
+and a SQL backend.  If you want to do some work, any one
+of these components can be swapped out and replaced with
+the engine of your choice.  I've released all of the
+implementation work on this system into the public domain,
+and it runs on an entirely free/libre/open source software
+platform.
+\end{notate}
+
+\begin{notate}{Acknowledgements}
+Ted Nelson's ``Literary Machines'' and Marvin Minsky's
+``Society of Mind'' are cornerstones in the historical and
+social contextualization of this work.  Alfred Korzybski's
+``Science and Sanity'' and Gilles Deleuze's ``The Logic of
+Sense'' provided grounding and encouragement.  \TeX\ and
+GNU Emacs have been useful not just in prototyping this
+system, but also as exemplary projects in the genre I'm
+aiming for.  John McCarthy's Elephant 2000 was an
+inspiring thing to look at and think about\footnote{{\tt
+    http://www-formal.stanford.edu/jmc/elephant/elephant.html}}, and of course Lisp has been a vital ingredient.
+
+Thanks also to everyone who's talked about this project
+with me!
+\end{notate}
+
+\section{Using the program}
+
+\begin{notate}{Dependencies} \label{dependencies}
+Our interface is embedded in Emacs.  Backend processing is
+done with Common Lisp.  We are currently using the
+PostgreSQL database.  These packages should be available
+to you through the usual channels.  (I've been using SBCL,
+but any Lisp should do; please make sure you are using a
+contemporary Emacs version.)
+
+We will connect Emacs to Lisp via Slime\footnote{{\tt
+    http://common-lisp.net/project/slime/}}, and Lisp to
+PostgreSQL via CLSQL.\footnote{{\tt http://clsql.b9.com/}}
+CLSQL also talks directly to the Sphinx search engine,
+which we use for text-based search.\footnote{{\tt
+    http://www.sphinxsearch.com/}} Once all of these
+things are installed and working together, you should be
+able to begin to use Arxana.
+
+Setting up all of these packages can be a somewhat
+time-consuming and confusing task, especially if you
+haven't done it before!  See Appendix \ref{appendix-setup}
+for help.
+\end{notate}
+
+\begin{notate}{Export code and set up the interface}
+If you are looking at the source version of this document
+in Emacs, evaluate the following s-expression (type
+\emph{C-x C-e} with the cursor positioned just after its
+final parenthesis).  This exports the Common Lisp
+components of the program to suitable files for subsequent
+use, and prepares the Emacs environment.  (The code that
+does this is in Appendix \ref{appendix-lit}.)
+\end{notate}
+
+\begin{idea}
+(save-excursion
+  (let ((beg (search-forward "\\begin{verbatim}"))
+        (end (progn (search-forward "\\end{verbatim}")
+                    (match-beginning 0))))
+    (eval-region beg end)
+    (lit-process)))
+\end{idea}
+
+\begin{notate}{To load Common Lisp components at run-time} \label{load-at-runtime}
+Link {\tt arxana.asd} somewhere where Lisp can find it.
+Then run commands like these in your Lisp; if you like,
+you can place all of this stuff in your config file to
+automatically load Arxana when Lisp starts.  The final
+form is only necessary if you plan to use CLSQL's special
+syntax on the Lisp command-line.
+\end{notate}
+
+\begin{idea}
+(asdf:operate 'asdf:load-op 'clsql)
+(asdf:operate 'asdf:load-op 'arxana)
+(in-package arxana)
+(connect-to-database)
+(locally-enable-sql-reader-syntax)
+\end{idea}
+
+\begin{notate}{To connect Emacs to Lisp}
+Either run {\tt M-x slime RET} to start and connect to
+Lisp locally, or {\tt M-x slime-connect RET RET} after you
+have opened a remote connection to your remote server with
+a command like this: {\tt ssh -L 4005:127.0.0.1:4005
+  <username>@<host>} and started Lisp and the Swank server
+on the remote machine.  To have Swank start automatically
+when you start Lisp, put commands like this in your config
+file.
+\end{notate}
+
+\begin{idea}
+(asdf:operate 'asdf:load-op 'swank)
+(setf swank:*use-dedicated-output-stream* nil)
+(setf swank:*communication-style* :fd-handler)
+(swank:create-server :dont-close t)
+\end{idea}
+
+\begin{notate}{To define database structures}
+If you haven't yet defined the basic database structures,
+make sure to load them now!  (Using {\tt tabledefs.lisp},
+or the SQL code in Section \ref{sql-code})
+\end{notate}
+
+\begin{notate}{Importing this document into system}
+You can browse this document inside Arxana: after loading
+the code, run \emph{M-x autoimport-arxana}.
+\end{notate}
+
+\section{SQL tables} \label{sql-code}
+
+\begin{notate}{Objects and codes} \label{objects-and-codes}
+Every object in the system is identified by an ordered
+pair: a \emph{code} and a \emph{reference}.  The codes say
+which table contains the indicated object, and references
+provide that object's id.  To a specific element of a list
+or n-tuple, a third number, that element's \emph{offset},
+is required.  The codes are as follows:
+
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+0 & list \\ \hline
+1 & string \\ \hline
+2 & pair \\ \hline
+3 & triple \\ \hline
+\end{tabular}
+\end{center}
+\end{notate}
+
+\begin{idea}
+CREATE TABLE strings (
+   id SERIAL PRIMARY KEY,
+   text TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE pairs (
+   id SERIAL PRIMARY KEY,
+   code1 INT NOT NULL,
+   ref1 INT NOT NULL,
+   code2 INT NOT NULL,
+   ref2 INT NOT NULL,
+   UNIQUE (code1, ref1,
+           code2, ref2)
+);
+
+CREATE TABLE triples (
+   id SERIAL PRIMARY KEY,
+   code1 INT NOT NULL,
+   ref1 INT NOT NULL,
+   code2 INT NOT NULL,
+   ref2 INT NOT NULL,
+   code3 INT NOT NULL,
+   ref3 INT NOT NULL,
+   UNIQUE (code1, ref1,
+           code2, ref2,
+           code3, ref3)
+);
+\end{idea}
+
+\begin{notate}{A list of lists}\label{models-of-theories}
+As a central place to manage our collections, we first
+create a list of lists.  The `heading' is the list's name,
+and its `header' is metadata.
+\end{notate}
+
+\begin{idea}
+CREATE TABLE lists (
+  id SERIAL PRIMARY KEY,
+  heading REFERENCES strings(id) UNIQUE,
+  header REFERENCES strings(id) 
+);
+\end{idea}
+
+\begin{notate}{Lists on demand}\label{models-of-theories}
+Whenever we want to create a new list, we first add to the
+`lists' table, and then create a new table ``listk''
+(where k is equal to the new maximum id on `lists').
+\end{notate}
+
+\begin{idea}
+CREATE TABLE listk (
+   offset SERIAL PRIMARY KEY,
+   code INT NOT NULL,
+   ref INT NOT NULL
+);
+\end{idea}
+
+\begin{notate}{Side-note on containers via triples}  \label{containers-using-triples}
+To model a basic container, we can just use triples like
+``(A in B)''.  This is useful, but the elements of B are
+of course unordered.  In Section \ref{importing}, we make
+extensive use of triples like (B 1 $\alpha$), (B 2
+$\beta$), etc., to indicate that B's first component is
+$\alpha$, second component is $\beta$, and so on; so we
+can make ordered list-like containers as well.
+
+This is an example of the difference in expressive power
+of tags (which only provide a sense of unordered
+containment in ``virtual baskets'') and triples (which
+here are seen to at least provide the additional sense of
+ordered containment in ``virtual filing cabinets'',
+although they have much more in store for us); cf. Note
+\ref{prog-lit-review}.
+
+As useful as models based on these two principles are in
+principle, the user could easily be overloaded by looking
+at lots of different containers encoded in raw triples,
+all at once.
+\end{notate}
+
+\begin{notate}{Sense of containment}
+Note that every element of a list is in the list in the
+same ``sense'' -- for example, we can't instantly
+distinguish elements that are ``halfway in'' from those
+that are ``all the way in'', the same way we could with
+pure triples.
+\end{notate}
+
+%% \begin{notate}{References into theories}
+%% Since at the moment we have less than 10 basic codes, we
+%% can uniquely reference contents of theory $k$ with ordered
+%% pairs $10k+\mathit{basic\ code}$ and $\mathit{reference}$.
+%% \end{notate}
+
+\begin{notate}{Uniqueness of strings and triples} \label{unique-things}
+An attempt to create a duplicate contents in a string or
+triple generates a warning.  This saves storage, given
+possible repetitive use -- and avoids confusion.  We can,
+however, reference duplicate ``copies'' on the lists.
+\end{notate}
+
+\begin{notate}{Change} \label{change}
+Notice also that since neither strings nor triples
+``change'', we have to account for change in other ways.
+In particular, the contents of lists can change.  (We may
+subsequently add some metadata to certain lists are
+``locked'', or indicate that they can only be changed by
+adding, etc., so that their contents can be cited stably
+and reliably.)
+\end{notate}
+
+%% \begin{notate}{Each place contains one object} \label{places}
+%% It is obvious from the table definition that I want each
+%% place to contain precisely one thing; perhaps it is less
+%% obvious why I want to use a database table to maintain
+%% this relationship between ``places'' and ``things''.  This
+%% is largely a matter of convenience, but in particular it
+%% makes it easy for places to change.
+%% \end{notate}
+
+\begin{notate}{Provenance and other metadata} \label{provenance}
+We could of course add much more structure to the
+database, starting with simple adjustments like adding
+provenance metadata or versioning into the records for
+each stored thing.  For the time being, I assume that such
+metadata will appear in the application or content layer,
+as triples.  (The exception are the ``headings'' and
+``headers'' associated with lists.)
+\end{notate}
+
+\section{Common Lisp-side}
+
+\subsection{Preliminaries}
+
+\subsubsection*{System definition}
+
+\begin{common}{arxana.asd}
+(defsystem "arxana"
+    :version "1"
+    :author "Joe Corneli <holtzermann17@gmail.com>"
+    :licence "Public Domain"
+    :components
+    ((:file "packages")
+     (:file "utilities" :depends-on ("packages"))
+     (:file "database" :depends-on ("utilities"))
+     (:file "queries" :depends-on ("packages"))))
+\end{common}
+
+\subsubsection*{Package definition}
+
+\begin{common}{packages.lisp}
+(defpackage :arxana
+  (:use #:cl #:clsql #:clsql-sys))
+\end{common}
+
+\subsubsection*{Utilities}
+
+\begin{notate}{Useful things} \label{useful}
+These definitions are either necessary or useful for
+working the database and manipulating triple-centric
+and/or theory-situated data.  The implementation of
+theories given here is inspired by Lisp's streams.  This
+is perhaps the most gnarly part of the code; the pay-off
+of doing things the way we do them here is that
+subsequently theories can sit ``transparently'' over other
+structures.
+\end{notate}
+
+\begin{common}{utilities.lisp}
+(in-package arxana)
+(locally-enable-sql-reader-syntax)
+
+;; (defun connect-to-database ()
+;;    (connect `("localhost" "joe" "joe" "")
+;;             :database-type :postgresql-socket))
+
+(defun connect-to-database ()
+   (connect `("localhost" "joe" "joe" "joe")
+            :database-type :mysql))
+
+(defmacro select-one (&rest args)
+  `(car (select ,@args :flatp t)))
+
+(defmacro select-flat (&rest args)
+  `(select ,@args :flatp t))
+
+(defun resolve-ambiguity (stuff)
+  (first stuff))
+
+(defun isolate-components (content i j)
+  (list (nth (1- i) content)
+        (nth (1- j) content)))
+
+(defun isolate-beginning (triple)
+  (isolate-components (cdr triple) 1 2))
+
+(defun isolate-middle (triple)
+  (isolate-components (cdr triple) 3 4))
+
+(defun isolate-end (triple)
+  (isolate-components (cdr triple) 5 6))
+
+(defvar *read-from-heading* nil)
+
+(defvar *write-to-heading* nil)
+\end{common}
+
+\begin{notate}{On `datatype'}
+Just translate coordinates into their primary dimension.
+(How should this change to accomodate codes 4, 5, 6,
+possibly etc.?)
+\end{notate}
+
+\begin{common}{utilities.lisp}
+(defun datatype (data)
+  (cond ((eq (car data) 0)
+         "strings")
+        ((eq (car data) 1)
+         "places")
+        ((eq (car data) 2)
+         "triples")
+        ((eq (car data) 3)
+         "theories")))
+
+(locally-disable-sql-reader-syntax)
+\end{common}
+
+\begin{notate}{Resolving ambiguity}
+Often it will eventuate that there will be more than one
+item returned when we are only truly prepared to deal with
+one item.  In order to handle this sort of ambiguity, it
+would be great to have either a non-interactive notifier
+that says that some ambiguity has been dealt with, or an
+interactive tool that will let the user decide which of
+the ambiguous options to choose from.  For now, we provide
+the simplest non-interactive tool: just choose the first
+item from a possibly ambiguous list of items.
+\end{notate}
+
+\begin{notate}{Using a different database}
+See Note \ref{backend-variant} for instructions on changes
+you will want to make if you use a different database.
+\end{notate}
+
+\begin{notate}{Use of the ``count'' function}
+The SQL count function is thought to be inefficient with
+some backends; workarounds exist.  (And it's considered to
+be efficient with MySQL.)
+\end{notate}
+
+\begin{notate}{Abstraction} \label{abstraction}
+While it might be in some ways ``nice'' to allow people to
+chain together ever-more-abstract references to elements
+from other theories, I actually think it is better to
+demand that there just be \emph{one} layer of abstraction
+(since we can then quickly translate back and forth,
+rather than running through a chain of translations).
+
+This does not imply that we cannot have a theory
+superimposed over another theory (or over multiple
+theories) that draws input from throughout a massively
+distributed interlaced system -- rather, just that we
+assume we will need to translate to ``base coordinates''
+when building such structures.  However, we'll certainly
+want to explore the possibilities for running links
+between theories (abstractly similar in some sense to
+pointing at a component of a triple, but here there's no
+uniform beg, mid, end scheme to refer to).
+\end{notate}
+
+\subsection{Main table definitions}
+
+\begin{notate}{Defining tables from within Lisp}
+This is Lisp code to define the permanent SQL tables
+described in Section \ref{sql-code}.
+\end{notate}
+
+\begin{common}{tabledefs.lisp}
+;; (execute-command "CREATE TABLE strings (
+;;    id SERIAL PRIMARY KEY,
+;;    text TEXT NOT NULL UNIQUE
+;; );")
+
+(execute-command "CREATE TABLE strings (
+   id SERIAL PRIMARY KEY,
+   text TEXT,
+   UNIQUE INDEX (text(255))
+);")
+
+(execute-command "CREATE TABLE places (
+   id SERIAL PRIMARY KEY,
+   code INT NOT NULL,
+   ref INT NOT NULL
+);")
+
+(execute-command "CREATE TABLE triples (
+   id SERIAL PRIMARY KEY,
+   code1 INT NOT NULL,
+   ref1 INT NOT NULL,
+   code2 INT NOT NULL,
+   ref2 INT NOT NULL,
+   code3 INT NOT NULL,
+   ref3 INT NOT NULL,
+   UNIQUE (code1, ref1,
+           code2, ref2,
+           code3, ref3)
+);")
+
+(execute-command "CREATE TABLE theories (
+  id SERIAL PRIMARY KEY,
+  name INT UNIQUE REFERENCES strings(id)
+);")
+\end{common}
+
+\begin{notate}{Eliminating and tables}
+In case you ever need to redefine these tables, you can
+run code like this first, to delete the existing copies.
+(Additional tables are added whenever a theory is created;
+code for deleting theories or their contents will appear
+in Section \ref{processing-theories}.)
+\end{notate}
+
+\begin{idea}
+(dolist (view (list-views)) (drop-view view))
+(execute-command "DROP TABLE strings")
+(execute-command "DROP TABLE triples")
+(execute-command "DROP TABLE places")
+(execute-command "DROP TABLE theories")
+\end{idea}
+
+\subsection{Modifying the database}
+
+\begin{common}{database.lisp}
+(in-package arxana)
+(locally-enable-sql-reader-syntax)
+\end{common}
+
+\subsection*{Processing strings}
+
+\begin{notate}{On `string-to-id'}
+Return the id of `text', if present, otherwise nil.
+
+There was a segmentation fault with clisp here at one
+point, maybe because I hadn't gotten the clsql sql reader
+syntax loaded up properly.  Note that calling the code
+without the function wrapper did not produce the same
+segfault.
+\end{notate}
+
+\begin{common}{database.lisp}
+(defun string-to-id (text)
+  (select [id]
+          :from [strings]
+          :where [= [text] text]))
+\end{common}
+
+\begin{notate}{On `add-string'} \label{add-string}
+Add the argument `text' to the list of strings.  If the string
+is successfully created, its coordinates are returned.
+Otherwise, and in particular, if the request was to create
+a duplicate, nil is returned.
+
+Should this give a message ``Adding \meta{text} to the
+strings table'' when the string is added by an indirecto
+function call, such as through `massage'?
+(Note \ref{massage}.)
+\end{notate}
+
+\begin{common}{database.lisp}
+(defun add-string (text)
+  (handler-case
+   (progn (insert :into [strings]
+                  :attributes '(text)
+                  :values `(,text))
+          `(1 ,(string-to-id text)))
+   (sql-database-data-error ()
+     (warn "\"~a\" already exists."
+           text))))
+\end{common}
+
+\begin{notate}{Error handling bug}
+The function `add-string' (Note \ref{add-string}) exhibits
+the first of several error handling calls designed to
+ensure uniqueness (Note \ref{unique-things}).
+Experimentally, this works, but I'm observing that, at
+least sometimes, if the user tries to add an item that's
+already present in the database, the index tied to the
+associated table increases even though the item isn't
+added.  This is annoying.  I haven't checked whether this
+happens on all possible installations of the underlying
+software.
+\end{notate}
+
+\subsection*{Parsing general input}
+
+\begin{notate}{On `massage'} \label{massage}
+User input to functions like `add-triple' and so on and so
+forth can be strings, integers (which the function
+``serializes'' as the string versions of themselves), or
+as \emph{coordinates} -- lists of the form (code ref).
+This function converts all of these input forms into the
+last one!  It takes an optional argument `addstr' which,
+if supplied, says to add string data to the database if it
+wasn't there already.
+\end{notate}
+
+\begin{common}{database.lisp}
+(defun massage (data &optional addstr)
+  (cond
+   ((integerp data)
+    (massage (format nil "~a" data) addstr))
+   ((stringp data)
+    (let ((id (string-to-id data)))
+      (if id
+          (list 0 id)
+          (when addstr
+            (add-string data)))))
+   ((and (listp data)
+         (equal (length data) 2))
+    data)
+   (t nil)))
+\end{common}
+
+
+\subsection*{Processing triples}
+
+\begin{notate}{On `triple-to-id'}
+Return the id of the triple (beg mid end),
+if present, otherwise nil.
+\end{notate}
+
+\begin{common}{database.lisp}
+(defun triple-to-id (beg mid end)
+  (let ((b (massage beg))
+        (m (massage mid))
+        (e (massage end)))
+    (select [id]
+            :from [triples]
+            :where [and [= [code1] (first b)]
+                        [= [ref1] (second b)]
+                        [= [code2] (first m)]
+                        [= [ref2] (second m)]
+                        [= [code3] (first e)]
+                        [= [ref3] (second e)]])))
+\end{common}
+
+\begin{notate}{On `add-triple'} \label{add-triple}
+Elements of triples are parsed by `massage'
+(Note \ref{massage}).  If the triple
+is successfully created, its coordinates are returned.
+Otherwise, and in particular, if the request was to create
+a duplicate, nil is returned.
+\end{notate}
+
+\begin{common}{database.lisp}
+(defun add-triple (beg mid end)
+  "Add a triple comprised of BEG MID and END."
+  (let ((b (massage beg t))
+        (m (massage mid t))
+        (e (massage end t)))
+    (when (and b m e)
+      (handler-case
+       (progn
+         (insert-records
+          :into [triples] :attributes '(code1 ref1
+                                        code2 ref2
+                                        code3 ref3)
+          :values `(,(first b) ,(second b)
+                    ,(first m) ,(second m)
+                    ,(first e) ,(second e)))
+         `(2 ,(triple-to-id b m e)))
+       (sql-database-data-error ()
+         (warn "\"~a\" already entered as [~a ~a ~a]."
+               (list beg mid end) b m e))))))
+\end{common}
+
+\subsection*{Processing theories} \label{processing-theories}
+
+\begin{notate}{Things to do with theories}
+For the record, we want to be able to create a theory, add
+elements to that theory, remove or change elements in the
+theory, and, for convenience, zap everything in a theory.
+Perhaps we will also want functions to remove the tables
+associated with a theory as well, swap the position of two
+theories, or change the name of a theory.  We will also
+want to be able to export and import theories, so they can
+be ``beamed'' between installations.  At appropriate
+places in the Emacs interface, we'll need to set
+`*write-to-heading*' and `*read-from-heading*'.
+\end{notate}
+
+\begin{notate}{What can go in a theory} \label{what-can-go-in}
+Notice that there is no rule that says that a triple or
+place that's part of a theory needs to point only at
+strings that are in the same theory.
+\end{notate}
+
+\begin{notate}{On `list-to-id'}
+Return the id of the theory with given `heading', if present,
+otherwise, nil.
+\end{notate}
+
+\begin{common}{database.lisp}
+(defun list-to-id (heading)
+  (let ((string-id (string-to-id heading)))
+    (select [id]
+            :from [lists]
+            :where [= [heading] string-id])))
+\end{common}
+
+\begin{notate}{On `add-theory'} \label{add-theory}
+Add a theory to the theories table, and all the new
+dimensions of the frame that comprise this theory.
+(Theories have names that are strings -- it seems a
+little funny to always have to translate submitted
+strings to ids for lookup, but this is what we do.)
+\end{notate}
+
+\begin{common}{database.lisp}
+(defun add-list (heading)
+  (let ((string-id (second (massage heading t))))
+    (handler-case
+        (progn (insert :into [lists]
+                       :attributes '(heading)
+                       :values `(,string-id))
+               (let ((k (theory-to-id heading)))
+                 (execute-command
+                  (format nil "CREATE TABLE lists~A (
+   offset SERIAL PRIMARY KEY,
+   code INT NOT NULL,
+   ref INT NOT NULL
+);" k))
+                 `(0 ,k)))
+      (sql-database-data-error
+          ()
+        (warn "The list \"~a\" already exists."
+              heading)))))
+\end{common}
+
+\begin{notate}{On `get-lists'}
+Find all lists that contain `symbol'.
+\end{notate}
+
+\begin{common}{database.lisp}
+(defun get-lists (symbol)
+  (let* ((data (massage symbol))
+         (type (datatype data))
+         (id (second data))
+         (n (caar
+             (query "select count(*) from lists")))
+         results)
+    (loop for k from 1 upto n
+          do (let ((present
+                    (query (concatenate
+                            'string
+                            "select offset from list"
+                            (format nil "~A" k)
+                            " where ((code = "
+                            (format nil "~A" type)
+                            ") and (ref = "
+                            (format nil "~A" id)
+                            "))"))))
+               (when present
+                 ;; bit of a problem if there are multiple
+                 ;; entries of that item on the given
+                 ;; list.
+                 (setq results (cons (list 0 k present)
+                                     results)))))
+    results))
+\end{common}
+
+\begin{notate}{On `save-to-list'}
+Record `symbol' on list named `name'.
+\end{notate}
+
+\begin{common}{database.lisp}
+(defun save-to-list (symbol name)
+  (let* ((data (massage symbol t))
+         (type (datatype data))
+         (string-id (string-to-id name))
+         (k (select-one [id]
+                        :from [lists]
+                        :where [= [name] string-id]))
+         (tablek (concatenate 'string
+                              type (format nil "~A" k))))
+    (insert-records :into (sql-expression :table tablek)
+                    :attributes '(id)
+                    :values `(,(second data)))))
+\end{common}
+
+\subsection*{Lookup by id or coordinates}
+
+\begin{notate}{The data format that's best for Lisp} \label{what-is-best-for-lisp}
+It is a reasonable question to ask whether or not the an
+item's id should be considered part of that item's
+defining data when that data is no longer in the database.
+For the functions defined here, the id is an input, and so
+by default I'm not including it in the output here,
+because it is already known.  However, for functions like
+`triples-given-beginning' (See Note
+\ref{graph-like-data}), the id is \emph{not} part of the
+known data, and so it is returned.  Therefore I am
+providing the `retain-id' flag here, for cases where
+output should be consistent with that of these other
+functions.
+\end{notate}
+
+\begin{common}{database.lisp}
+(defun string-lookup (id &optional retain-id)
+  (let ((ret (select [text]
+                     :from [strings]
+                     :where [= [id] id])))
+    (if retain-id
+        (list id ret)
+        ret)))
+
+(defun triple-lookup (id &optional retain-id)
+  (let ((ret (select [code1] [ref1]
+                     [code2] [ref2]
+                     [code3] [ref3]
+                     :from [triples]
+                     :where [= [id] id])))
+    (if retain-id
+        (cons id ret)
+        ret)))
+
+(defun list-lookup (id &optional retain-id)
+  (let ((ret (select [name]
+                     :from [lists]
+                     :where [= [id] id])))
+    (if retain-id
+        (list id ret)
+        ret)))
+\end{common}
+
+\begin{notate}{Succinct idioms for following pointers}
+Here are some variants on the functions above which save
+us from needing to extract the id of the item from its
+coordinates.
+\end{notate}
+
+\begin{common}{database.lisp}
+(defun string-contents (coords)
+  (string-lookup (second coords)))
+
+(defun place-contents (coords)
+  (place-lookup (second coords)))
+
+(defun triple-contents (coords)
+  (triple-lookup (second coords)))
+\end{common}
+
+\begin{notate}{Switchboard} \label{switchboard}
+Even more succinctly, one function that can get
+the object indicated by any set of coordinates.
+\end{notate}
+
+\begin{common}{database.lisp}
+(defun switchboard (coords)
+  (cond ((eq (first coords) 0)
+         (string-contents coords))
+        ((eq (first coords) 1)
+         (place-contents coords))
+        ((eq (first coords) 2)
+         (triple-contents coords))))
+\end{common}
+
+\begin{notate}{Anti-pasti}
+The readability of this code could perhaps be improved if
+we used functions like `switchboard' more frequently.
+(More to the point, it seems it's not currently used.)  In
+particular, it would be nice if we could sweep idioms like
+\verb+`(2 ,(car triple))+ under the rug.
+\end{notate}
+
+\begin{common}{database.lisp}
+(locally-disable-sql-reader-syntax)
+\end{common}
+
+\subsection{Queries} \label{queries}
+
+\begin{notate}{The use of views} \label{use-of-views}
+It is easy enough to select those triples which match
+simple data, e.g., those triples which have the same
+beginning, middle, or end, or any combination of these.
+It is a little more complicated to find items that match
+criteria specified by several different triples; for
+example, to \emph{find all the books by Arthur C. Clarke
+  that are also works of fiction}.
+
+Suppose our collection of triples contains a portion as
+follows:
+\begin{center}
+\begin{tabular}{lll}
+Profiles of the Future & is a & book \\ 2001: A Space
+Odyssey & is a & book \\ Ender's Game & is a & book
+\\ Profiles of the Future & has genre & non-fiction
+\\ 2001: A Space Odyssey & has genre & fiction \\ Ender's
+Game & has genre & fiction \\ Profiles of the Future & has
+author & Arthur C. Clarke \\ 2001: A Space Odyssey & has
+author & Arthur C. Clarke \\ Ender's Game & has author &
+Orson Scott Card
+\end{tabular}
+\end{center}
+
+One way to solve the given problem would be to find those
+items that \emph{are written by Arthur C. Clarke} (* ``has
+author'' and ``Arthur C. Clarke''), that \emph{are books}
+(* ``is a'' ``book''), and \emph{that are classified as
+  fiction} (* ``has genre'' ``fiction'').  We are looking
+for items that match \emph{all} of these conditions.
+
+Our implementation strategy is: collect the items matching
+each criterion into a view, then join these views.  (See
+the function `satisfy-conditions'
+\ref{satisfy-conditions}.)
+
+If we end up working with large queries and a lot of data,
+this use of views may not be an efficient way to go -- but
+we'll cross that bridge when we come to it.
+\end{notate}
+
+\begin{notate}{Search queries}
+In Note \ref{sphinx-setup} et seq., we give some
+instructions on how to set up the Sphinx search engine to
+work with Arxana.  However, a much tighter integration of
+Sphinx into Arxana is possible, and will be coming soon.
+\end{notate}
+
+\begin{common}{queries.lisp}
+(in-package arxana)
+(locally-enable-sql-reader-syntax)
+\end{common}
+
+\subsection*{Printing}
+
+\begin{notate}{On `print-system-object'} \label{print-system-object}
+The function `print-system-object' bears some resemblance
+to `massage', but is for printing instead,
+and therefor has to be recursive (because triples and
+places can point to other system objects, printing can be
+a long and drawn out ordeal).
+\end{notate}
+
+\begin{common}{queries.lisp}
+(defun print-system-object (data &optional components)
+  (cond
+    ;; just return strings
+    ((stringp data)
+     data)
+    ;; printing from coordinates (code, ref)
+    ((and (listp data)
+          (equal (length data) 2))
+     ;; we'll need some hack to deal with
+     ;; elements-of-theories, which, right now, are two
+     ;; elements long but are not (code, ref) pairs but
+     ;; rather (local_id, ref) pairs, or maybe actually if
+     ;; we take context into consideration, they're
+     ;; actually (k, table, local_id, ref) quadruplets.
+     ;; Obviously with *that* data we can translate to
+     ;; (code, ref).  On the other hand, if we *don't*
+     ;; take it into consideration, we probably can't do
+     ;; much of anything.  So we should be careful to be
+     ;; aware of just what sort of information we're
+     ;; passing around.
+     (cond ((equal (first data) 0)
+            (string-lookup (second data)))
+           ((equal (first data) 1)
+            (print-system-object
+             (place-lookup (second data) t)))
+           ((equal (first data) 2)
+            (let ((triple (triple-lookup (second data) t)))
+              (if components
+                  (list
+                   (print-beginning triple)
+                   (print-middle triple)
+                   (print-end triple))
+                  (concatenate
+                   'string
+                   (format nil "T~a[" (second data))
+                   (print-beginning triple) "."
+                   (print-middle triple) "."
+                   (print-end triple) "]"))))
+           ((equal (first data) 3)
+            (concatenate 'string "List printing not implemented yet."))))
+    ;; place
+    ((and (listp data)
+          (equal (length data) 3))
+     (concatenate 'string
+                  (format nil "P~a|" (first data))
+                  (print-system-object (cdr data)) "|"))
+    ;; triple
+    ((and (listp data)
+          (equal (length data) 7))
+      (if components
+          (list
+           (print-beginning data)
+           (print-middle data)
+           (print-end data))
+          (concatenate
+           'string
+           (format nil "T~a[" (first data))
+           (print-beginning data) "."
+           (print-middle data) "."
+           (print-end data) "]")))
+    (t nil)))
+
+(defun print-beginning (triple)
+  (print-system-object (isolate-beginning triple)))
+
+(defun print-middle (triple)
+  (print-system-object (isolate-middle triple)))
+
+(defun print-end (triple)
+  (print-system-object (isolate-end triple)))
+\end{common}
+
+\begin{notate}{Depth}
+If we are going to have complicated recursive references,
+our printer, and anything else that gives the system some
+semantics, should come with some sort of ``layers'' switch
+that can be used to limit the amount of recursion we do in
+any given computation.
+\end{notate}
+
+\begin{notate}{Printing objects as they appear in Lisp} \label{printing-objects-in-lisp}
+With the following functions we provide facilities for
+printing an object, either from its id or from the
+expanded form of the data that represents it in Lisp.
+(This is one good reason to have one standard form for
+this data; compare Note \ref{what-is-best-for-lisp}.
+These functions assume that the id \emph{is} part of
+what's printed, so if using functions like `triple-lookup'
+to retrieve data for printing, you'll have to graft the id
+back on before printing with these functions.)
+\end{notate}
+
+\begin{notate}{Printing theories}
+We'll want to both print all of the content of a theory,
+and print \emph{from} the theory in a more limited way.
+(Perhaps we get the second item for free, already?)
+\end{notate}
+
+\begin{common}{queries.lisp}
+(defun print-string (string &optional components)
+  (print-system-object string components))
+
+(defun print-place (place &optional components)
+  (print-system-object place components))
+
+(defun print-triple (triple &optional components)
+  (print-system-object triple components))
+
+(defun print-string-from-id (id &optional components)
+  (print-system-object (list 0 id) components))
+
+(defun print-place-from-id (id &optional components)
+  (print-system-object (list 1 id) components))
+
+(defun print-triple-from-id (id &optional components)
+  (print-system-object (list 2 id) components))
+\end{common}
+
+\begin{notate}{Printing some stuff but not other stuff} \label{printing-some}
+These functions are good for printing lists as come out of
+the database.  See Note \ref{strings-and-ids} on printing
+strings.
+\end{notate}
+
+\begin{common}{queries.lisp}
+(defun print-strings (strings)
+  (mapcar 'second strings))
+
+(defun print-places (places &optional components)
+  (mapcar (lambda (item)
+             (print-system-object item components))
+  places))
+
+(defun print-triples (triples &optional components)
+ (mapcar (lambda (item)
+             (print-system-object item components))
+             triples))
+
+(defun print-theories (theories &optional components)
+ (mapcar (lambda (item)
+             (print-system-object item components))
+             theories))
+\end{common}
+
+\begin{notate}{Printing everything in each table} \label{printing-everything}
+These functions collect human-readable versions of
+everything in each table.  Notice that `all-strings' is
+written differently.
+\end{notate}
+
+\begin{common}{queries.lisp}
+(defun all-strings ()
+  (mapcar 'second (select [*] :from [strings])))
+
+(defun all-places ()
+  (mapcar 'print-system-object
+          (select [*] :from [places])))
+
+(defun all-triples ()
+ (mapcar 'print-system-object
+         (select [*] :from [triples])))
+
+(defun all-theories ()
+ (mapcar 'print-system-object
+         (select [*] :from [theories])))
+\end{common}
+
+\begin{notate}{Printing on particular dimensions}
+One possible upgrade to the printing functions would be to
+provide the built-in to ``curry'' the printout -- for
+example, just print the source nodes from a list of
+triples.  However, it should of course also be possible to
+do processing like this Lisp after the printout has been
+made (the point is, it is presumably it is more efficient
+only to retrieve and format the data we're actually
+looking for).
+\end{notate}
+
+\begin{notate}{Strings and ids} \label{strings-and-ids}
+Unlike other objects, strings don't get printed with their
+ids.  We should probably provide an \emph{option} to print
+with ids (this could be helpful for subsequent work with
+the strings in question; on the other hand, since strings
+are being kept unique, we can immediately exchange a
+string and it's id, so I'm not sure if it's necessary to
+have an explicit ``option'').
+\end{notate}
+
+\subsection*{Functions that establish basic graph structure}
+
+\begin{notate}{Thinking about graph-like data} \label{graph-like-data}
+Here we have in mind one or more objects (e.g. a
+particular source and sink) that is associated with
+potentially any number of triples (e.g. all the possible
+middles running between these two identified objects).
+These functions establish various forms of locality or
+neighborhood within the data.
+
+The results of such queries can be optionally cached in a
+view, which is useful for further processing
+(cf. \ref{satisfy-conditions}).
+
+These functions take input in the form of strings and/or
+coordinates (cf. Note \ref{massage}).
+\end{notate}
+
+\begin{common}{queries.lisp}
+(defun triples-given-beginning (node &optional view)
+  "Get triples outbound from the given NODE.  Optional
+  argument VIEW causes the results to be selected into a
+  view with that name."
+  (let ((data (massage node))
+        (window (or view "interal-view"))
+        ret)
+    (when data
+      (create-view
+       window
+        :as (select [*]
+             :from [triples]
+             :where [and [= [code1] (first data)]
+                         [= [ref1] (second data)]]))
+      (setq ret (select [*] :from window))
+      (unless view
+        (drop-view window))
+      ret)))
+
+(defun triples-given-end (node &optional view)
+  "Get triples inbound into NODE.  Optional argument VIEW
+       causes the results to be selected into a view with
+       that name."
+  (let ((data (massage node))
+        (window (or view "interal-view"))
+        ret)
+    (when data
+      (create-view
+       window
+        :as (select [*]
+             :from [triples]
+             :where [and [= [code3] (first data)]
+                         [= [ref3] (second data)]]))
+      (setq ret (select [*] :from window))
+      (unless view
+        (drop-view window))
+      ret)))
+
+(defun triples-given-middle (edge &optional view)
+  "Get the triples that run along EDGE.  Optional argument
+       VIEW causes the results to be selected into a view
+       with that name."
+  (let ((data (massage edge))
+        (window (or view "interal-view"))
+        ret)
+    (when data
+      (create-view
+       window
+       :as (select [*]
+            :from [triples]
+            :where [and [= [code2] (first data)]
+                        [= [ref2] (second data)]]))
+      (setq ret (select [*] :from window))
+      (unless view
+        (drop-view window))
+      ret)))
+
+(defun triples-given-middle-and-end (edge node &optional
+       view)
+  "Get the triples that run along EDGE into NODE.
+       Optional argument VIEW causes the results to be
+       selected into a view with that name."
+  (let ((edgedata (massage edge))
+        (nodedata (massage node))
+        (window (or view "interal-view"))
+        ret)
+    (when (and edgedata nodedata)
+      (create-view
+       window
+       :as (select [*]
+            :from [triples]
+            :where [and [= [code2] (first edgedata)]
+                        [= [ref2] (second edgedata)]
+                        [= [code3] (first nodedata)]
+                        [= [ref3] (second nodedata)]]))
+      (setq ret (select [*] :from window))
+      (unless view
+        (drop-view window))
+      ret)))
+
+(defun triples-given-beginning-and-middle (node edge
+                                           &optional view)
+  "Get the triples that run from NODE along EDGE.
+Optional argument VIEW causes the results to be selected
+into a view with that name."
+  (let ((nodedata (massage node))
+        (edgedata (massage edge))
+        (window (or view "interal-view"))
+        ret)
+    (when (and nodedata edgedata)
+      (create-view
+       window
+       :as (select [*]
+            :from [triples]
+            :where [and [= [code1] (first nodedata)]
+                        [= [ref1] (second nodedata)]
+                        [= [code2] (first edgedata)]
+                        [= [ref2] (second edgedata)]]))
+      (setq ret (select [*] :from window))
+      (unless view
+        (drop-view window))
+      ret)))
+
+(defun triples-given-beginning-and-end (node1 node2
+       &optional view)
+  "Get the triples that run from NODE1 to NODE2.  Optional
+       argument VIEW causes the results to be selected
+       into a view with that name."
+  (let ((node1data (massage node1))
+        (node2data (massage node2))
+        (window (or view "interal-view"))
+        ret)
+    (when (and node1data node2data)
+      (create-view
+       window
+       :as (select [*]
+            :from [triples]
+            :where [and [= [code1] (first node1data)]
+                        [= [ref1] (second node1data)]
+                        [= [code3] (first node2data)]
+                        [= [ref3] (second node2data)]]))
+      (setq ret (select [*] :from window))
+      (unless view
+        (drop-view window))
+      ret)))
+
+;; This one use `select-one' instead of `select'
+(defun triple-exact-match (node1 edge node2 &optional
+       view)
+  "Get the triples that run from NODE1 along EDGE to
+NODE2.  Optional argument VIEW causes the results to be
+selected into a view with that name."
+  (let ((node1data (massage node1))
+        (edgedata (massage edge))
+        (node2data (massage node2))
+        (window (or view "interal-view"))
+        ret)
+    (when (and node1data edgedata node2data)
+      (create-view
+       window
+       :as (select [*]
+            :from [triples]
+            :where [and [= [code1] (first node1data)]
+                        [= [ref1] (second node1data)]
+                        [= [code2] (first edgedata)]
+                        [= [ref2] (second edgedata)]
+                        [= [code3] (first node2data)]
+                        [= [ref3] (second node2data)]]))
+      (setq ret (select-one [*] :from window))
+      (unless view
+        (drop-view window))
+      ret)))
+\end{common}
+
+\begin{notate}{Becoming flexible about a string's status}
+One possible upgrade would be to provide versions of these
+functions that will flexibly accept either a string or a
+``placed string'' as input (since frequently we're
+interested in content of that sort; see
+\ref{importing-sketch}).
+\end{notate}
+
+\subsection*{Finding places that satisfy some property}
+
+\begin{notate}{On `get-places-subject-to-constraint'}
+Like `get-places' (Note \ref{get-places}), but this
+time takes an extra condition of the form (A C B)
+where one of A, B, and C is `nil'.  We test each
+of the places in place of this `nil', to see if a
+triple matching that criterion exists.
+\end{notate}
+
+\begin{common}{queries.lisp}
+(defun get-places-subject-to-constraint (symbol condition)
+  (let ((candidate-places (get-places symbol))
+        accepted-places)
+    (dolist (place candidate-places)
+      (let ((filled-condition
+             (map 'list (lambda (elt) (or elt
+                                          `(1 ,place)))
+                  condition)))
+        (when (apply 'triple-relaxed-match
+                     filled-condition)
+          (setq accepted-places
+                (cons place accepted-places)))))
+    accepted-places))
+\end{common}
+
+\subsection*{Logic}
+
+\begin{notate}{Caution: compatibility with theories?}
+For the moment, I'm not sure how compatible this function
+is with the theories apparatus we've established, or with
+the somewhat vaguer notion of trans-theory questions or
+concerns.  Global queries should work just fine, but
+theory-local questions may need some work.  Before getting
+into compatibility of these questions with the theory
+apparatus, I want to make sure that apparatus is working
+properly.  Note that the questions here do rely on
+functions for graph-like thinking (Note
+\ref{graph-like-data} et seq.), and it would certainly
+make sense to port to ``subgraphs'' as represented by
+theories.
+\end{notate}
+
+\begin{notate}{On `satisfy-conditions'} \label{satisfy-conditions}
+This function finds the items which match constraints.
+Constraints take the form (A B C), where precisely one of
+A, B, or C should be `nil', and any of the others can be
+either input suitable for `massage', or
+`t'.  The `nil' entry stands for the object we're
+interested in.  Any `t' entries are wildcards.
+
+The first thing that happens as the function runs is that
+views are established exhibiting each group of triples
+satisfying each predicate.  The names of these views are
+then massaged into a large SQL query.  (It is important to
+``typeset'' all of this correctly for our SQL `query'.)
+Finally, once that query has been run, we clean up,
+dropping all of the views we created.
+\end{notate}
+
+\begin{common}{queries.lisp}
+(defun satisfy-conditions (constraints)
+  (let* ((views (generate-views constraints))
+         (formatted-list-of-views (format-views
+                                   views))
+         (where-condition (generate-where-condition
+                           views
+                           constraints))
+         (ret
+          ;; Let's see what the query is, first of all.
+          (query
+           (concatenate
+            'string
+            "select v1.id, v1.code1, v1.ref1, "
+                          "v1.code2, v1.ref2, "
+                          "v1.code3, v1.ref3 "
+            "from "
+            formatted-list-of-views
+            "where "
+            where-condition
+            ";"))))
+    (mapc (lambda (name) (drop-view name)) views)
+    ret))
+\end{common}
+
+\begin{notate}{Subroutines for `satisfy-conditions'}
+The functions below produce bits and pieces of the SQL
+query that `satisfy-conditions' submits.  The point of the
+`generate-views' is to create a series of views centered
+on the term(s) we're interested in (the `nil' slots in
+each submitted constraint).  With
+`generate-where-condition', we insist that all of these
+interesting terms should, in fact, be equal to one
+another.
+\end{notate}
+
+\begin{notate}{On `generate-views'}
+In a `cond' form, for each constraint we must select the
+appropriate function to generate the view; at the very end
+of the cond form, we spit out the viewname (for `mapcar'
+to add to the list of views).
+\end{notate}
+
+\begin{common}{queries.lisp}
+(defun generate-views (constraints)
+  (let ((counter 0))
+    (mapcar
+     (lambda (constraint)
+       (setq counter (1+ counter))
+       (let ((viewname (format nil "v~a" counter)))
+         (cond
+          ;; A * ? or A ? *
+          ((or (and (eq (second constraint) t)
+                    (eq (third constraint) nil))
+               (and (eq (second constraint) nil)
+                    (eq (third constraint) t)))
+           (triples-given-beginning
+            (first constraint)
+            viewname))
+          ;; * B ? or ? B *
+          ((or (and (eq (first constraint) t)
+                    (eq (third constraint) nil))
+               (and (eq (first constraint) nil)
+                    (eq (third constraint) t)))
+           (triples-given-middle
+            (second constraint)
+            viewname))
+          ;; * ? C or ? * C
+          ((or (and (eq (first constraint) t)
+                    (eq (second constraint) nil))
+               (and (eq (first constraint) nil)
+                    (eq (second constraint) t)))
+           (triples-given-end
+            (third constraint)
+            viewname))
+          ;; ? B C
+          ((eq (first constraint) nil)
+           (triples-given-middle-and-end
+            (second constraint)
+            (third constraint)
+            viewname))
+          ;; A ? C
+          ((eq (second constraint) nil)
+           (triples-given-beginning-and-middle
+            (first constraint)
+            (second constraint)
+            viewname))
+          ;; A C ?
+          ((eq (third constraint) nil)
+           (triples-given-beginning-and-end
+            (first constraint)
+            (third constraint)
+            viewname)))
+         viewname))
+     constraints)))
+
+(defun format-views (views)
+  (let ((formatted-list-of-views ""))
+    (mapc (lambda (view)
+            (setq formatted-list-of-views
+                  (concatenate
+                   'string
+                   formatted-list-of-views
+                   (format nil "~a," view))))
+          (butlast views))
+    (setq formatted-list-of-views
+          (concatenate
+           'string
+           formatted-list-of-views
+           (format nil "~a " (car (last views)))))
+    formatted-list-of-views))
+
+(defun generate-where-condition (views conditions)
+  (let ((where-condition "")
+        (c (select-component (first conditions))))
+    ;; there should be one less "=" condition than there
+    ;; are things to compare; until we get to the last
+    ;; view, everything is joined together by an `and'.
+    ;; -- this needs to consider (map over) both `views'
+    ;; and `conditions'.
+    (loop
+     for i from 1 upto (1- (length views))
+     do
+     (let ((compi (select-component (nth i conditions)))
+           (viewi (nth i views)))
+       (setq
+        where-condition
+        (concatenate
+         'string
+         where-condition
+         (concatenate
+          'string
+          "(v1.code" c " = " viewi ".code" compi ") and "
+          "(v1.ref" c " = " viewi ".ref" compi ") and ")))))
+    (let ((viewn (nth (1- (length views)) views))
+          (compn (select-component
+                    (nth (length views) conditions))))
+      (setq
+       where-condition
+       (concatenate
+        'string
+        where-condition
+        "(v1.code" c " = " viewn ".code" compn ") and "
+        "(v1.ref" c " = " viewn ".ref" compn ")")))
+    where-condition))
+
+(defun select-component (condition)
+  (cond ((eq (first condition) nil) "1")
+        ((eq (second condition) nil) "2")
+        ((eq (third condition) nil) "3")))
+\end{common}
+
+\begin{common}{queries.lisp}
+(locally-disable-sql-reader-syntax)
+\end{common}
+
+\begin{notate}{Even more complicated logic}
+In order to conveniently manage complex queries, it would
+be nice if we could store the results of earlier queries
+into views, so that we can combine several such views for
+further processing.
+\end{notate}
+
+\section{Emacs-side} \label{emacs-side}
+
+\subsection{The interface to Common Lisp}
+
+\begin{notate}{On `Defun'} \label{defun-interface}
+A way to define Elisp functions whose bodies are evaluated
+by Common Lisp.  Trust me, this is a good idea.  Besides,
+it exhibits some facinating backquote and comma tricks.
+But be careful: this definition of `Defun' did not work on
+Emacs version 21.
+
+If we want to be able to feed in a standard arglist to
+Common Lisp (with optional elements and so forth), we'd
+have define how these arguments are handled here!
+\end{notate}
+
+\begin{elisp}
+(defmacro Defun (name arglist &rest body)
+  (declare (indent defun))
+  `(defun ,name ,arglist
+     (let* ((outbound-string
+             (translate-emacs-syntax-to-common-syntax
+              (format "%S"
+                      (append
+                       (list
+                        (append (list 'lambda ',arglist)
+                                ',body))
+                       (mapcar
+                        (lambda (arg) `',arg)
+                        (list
+                         ,@(remove-if
+                                 (lambda (testelt)
+                                   (eq testelt
+                                 '&optional))
+                                 arglist)))))))
+            (returned-string
+             (second
+              ;; we now specify the right package!
+              (slime-eval
+               (list 'swank:eval-and-grab-output
+                     outbound-string)
+               :arxana))))
+       (process-slime-output returned-string))))
+\end{elisp}
+
+\begin{notate}{On `process-slime-output'}
+This should downcase all constituent symbols, but for
+expediency I'm just downcasing `NIL' at the moment.  Will
+come back for more testing and downcasing shortly.  (I
+suspect the general case is just about as easy as what
+happens here.)
+\end{notate}
+
+\begin{elisp}
+(defun process-slime-output (str)
+  (condition-case nil
+      (let ((read-value (read str)))
+        (if (symbolp read-value)
+            (read (downcase str)))
+        (nsubst nil 'NIL read-value))
+    (error str)))
+\end{elisp}
+
+\begin{elisp}
+(defun translate-emacs-syntax-to-common-syntax (str)
+  (with-temp-buffer
+    (insert str)
+    (dolist (swap '(("(\\` " "`")
+                    ("(\\\, " ",")))
+      (goto-char (point-min))
+      (while (search-forward (first swap) nil t)
+        (goto-char (match-beginning 0))
+        (forward-sexp)
+        (delete-char -1)
+        (goto-char (match-beginning 0))
+        (delete-region (match-beginning 0)
+                       (match-end 0))
+        (insert (second swap))))
+    (buffer-substring-no-properties (point-min)
+                                    (point-max))))
+\end{elisp}
+
+\begin{notate}{Interactive `Defun'}
+Note, an improved version of this macro would allow me to
+specify that some Defuns are interactive and some are not.
+This could be done by examining the submitted body, and
+adjusting the defun if its car is an `interactive' form.
+Most of the Defuns will be things that people will want to
+use interactively, so making this change would probably be
+a good idea.  What I'm doing in the mean time is just
+writing 2 functions each time I need to make an
+interactive function that accesses Common Lisp data!
+\end{notate}
+
+\begin{notate}{Common Lisp evaluation of code chunks}
+Another potentially beneficial and simple approach is to
+write a form like `progn' that evaluates its contents on
+Common Lisp.  This saves us from having to rewrite all of
+the `defun' facilities into `Defun' (e.g. interactivity).
+But... the problem with \emph{this} is that Common Lisp
+doesn't know the names of all the variables that are
+defined in Emacs!  I'm not sure how to get all of the
+values of these variable substituted \emph{first}, before
+the call to Common Lisp is made.
+\end{notate}
+
+\begin{notate}{Debugging `Defun'}
+In order to make debugging go easier, it might be nice to
+have an option to make the code that is supposed to be
+evaluated by Defun actually \emph{print} on the REPL
+instead of being processed through an invisible back-end.
+There could be a couple of different ways to do that, one
+would be to simulate just what a user might do, the other
+would be a happy medium between that and what we're doing
+now: just put our computery auto-generated code on the
+REPL and evaluate it.  (To some extent, I think the
+*slime-events* buffer captures this information, but it is
+not particularly easy to read.)
+\end{notate}
+
+\begin{notate}{Interactive Common Lisp?}
+Suppose we set up some kind of interactive environment in
+Common Lisp; how would we go about passing this
+environment along to a user interacting via Emacs?  (Note
+that SLIME's presentation of the debugging loop is one
+good example.)
+\end{notate}
+
+\subsection{Database interaction} \label{interaction}
+
+\begin{notate}{The `article' function} \label{the-article-function}
+You can use this function to create an article with a
+given name and contents.  If you like you can put it in a
+list.
+\end{notate}
+
+\begin{elisp}
+(Defun article (name contents &optional heading)
+  (let ((coordinates (add-triple name
+                                 "has content"
+                                 contents)))
+    (when theory (add-triple coordinates "in" heading))
+    (when place (if (numberp place)
+                    (put-in-place coordinates place)
+                  (put-in-place coordinates)))
+    coordinates))
+\end{elisp}
+
+\begin{notate}{The `scholium' function} \label{the-scholium-function}
+You can use this function to link annotations to objects.
+As with the `article' function, you can optionally
+categorize the connection on a given list (cf. Note
+\ref{the-article-function}).
+\end{notate}
+
+\begin{elisp}
+(Defun scholium (beginning link end &optional heading)
+  (let ((coordinates (add-triple beginning
+                                 link
+                                 end)))
+    (when list (add-triple coordinates "in" heading))
+    (when place (if (numberp place)
+                    (put-in-place coordinates place)
+                  (put-in-place coordinates)))
+    coordinates))
+\end{elisp}
+
+\begin{notate}{Uses of coordinates}
+Note that, if desired, you can feed input of the form
+'(\meta{code} \meta{ref}) into `article' and `scholium'.
+It's convenient to do further any processing of the object
+we've created, while we still have ahold of the coordinates
+returned by `add-triple' (cf. Note
+\ref{import-code-continuations} for an example).
+\end{notate}
+
+\begin{notate}{Finding all the members of a list by type?}
+We just narrow according to type.
+\end{notate}
+
+\begin{notate}{On `get-article'} \label{get-article}
+Get the contents of the article named `name'.  Optional
+argument `list' lets us find and use the position on the
+given list that holds the name, and use that instead of
+the name itself.
+
+We do not yet deal well with the ambiguous case in which
+there are several positions that correspond to the given
+name that appear on the same list.
+
+Note also that out of the data returned by
+`triples-given-beginning-and-middle', we should pick the
+(hopefully just) ONE that corresponds to the given list.
+
+This means we need to pick over the list of triples
+returned here, and test each one to see if it is in our
+heading.  As to WHY there might be more than one ``has
+content'' for a place that we know to be in our
+heading... I'm not sure.  I guess we can go with the
+assumption that there is just one, for now.
+\end{notate}
+
+\begin{elisp}
+(Defun get-article (name &optional heading)
+  (let* ((place-pseudonyms
+          (if heading
+              (get-places-subject-to-constraint
+               name `(nil "in" ,heading))
+            (get-places name)))
+         (goes-by (cond
+                    ((eq (length place-pseudonyms) 1)
+                     `(1 ,(car place-pseudonyms)))
+                    ((triple-exact-match
+                      name "in" heading)
+                     name)
+                    ((not heading) name)
+                    (t nil))))
+    (when goes-by
+      ;; it might be nice to also return `goes-by'
+      ;; so we can access the appropriate place again.
+      (third (print-triple
+              (resolve-ambiguity
+               (triples-given-beginning-and-middle
+                goes-by "has content"))
+              t)))))
+\end{elisp}
+
+\begin{notate}{On `get-names'} \label{get-names}
+This function simply gets the names of articles that have
+names -- in other words, every triple built around the
+``has content'' relation.
+\end{notate}
+
+\begin{elisp}
+(Defun get-names (&optional heading)
+  (let ((conditions (list (list nil "has content" t))))
+    (when heading
+      (setq conditions
+            (append conditions
+                    (list (list nil "in" heading)))))
+    (mapcar
+     (lambda (place-or-string)
+       (cond
+         ;; place case
+         ((eq (first place-or-string) 1)
+          (print-system-object
+           (place-lookup (second place-or-string))))
+         ;; string case
+         ((eq (first place-or-string) 0)
+          (print-system-object place-or-string))))
+     (mapcar
+      (lambda (triple)
+        (isolate-beginning triple))
+      (satisfy-conditions conditions)))))
+\end{elisp}
+
+\begin{notate}{Contrasting cases} \label{contrasting-cases}
+Consider the difference between
+\begin{quote}
+(? ``has author'' ``Arthur C. Clarke'') \\
+(? ``has genre'' ``fiction'')
+\end{quote}
+and
+\begin{quote}
+(\emph{name} ``has content'' *) \\
+(\emph{name} ``in'' ``heading'')
+\end{quote}
+where, in the latter case, we know \emph{who} we're
+talking about, and we just want to limit the list of items
+generated by the ``*'' by the second condition.  This
+should help illustrate the difference between `get-names'
+(which is making a general query) and `get-article' (which
+already knows the name of a specific article), and the
+logic that they use.
+\end{notate}
+
+\begin{notate}{Placing items from Emacs} \label{place-item}
+We periodically need to place items from within Emacs.
+The function `place-item' is a wrapper for `put-in-place'
+that makes this possible (it also provides the user with
+an extra option, namely to put the place itself under a
+given heading).
+
+Notice that when the symbol is placed in some pre-existing
+place (which can only happen when `id' is not nil), that
+place may already be under some other heading.  We will ignore
+this case for now (since it seems that putting objects
+into \emph{new} places will be the preferred action), but
+later we will have to look at what to do in this other
+case.
+\end{notate}
+
+\begin{elisp}
+(Defun place-item (symbol &optional id heading)
+  (let ((coordinates (put-in-place symbol id)))
+    (when heading (add-triple coordinates "in" heading))
+    coordinates))
+\end{elisp}
+
+\begin{notate}{Automatic classifications} \label{classifications}
+It will presumably make sense to offer increasingly
+``automatic'' classifications for new objects.  At this
+point, we've set things up so that the user can optionally
+supply the name of \emph{one} heading that their new object
+is a part of.
+
+It may make more sense to allow an `\&rest theories'
+argument, and add the triple to all of the specified
+theories.  This would require modifying `Defun' to
+accommodate the `\&rest' idiom; see Note
+\ref{defun-interface}.
+\end{notate}
+
+\begin{notate}{Postconditions and provenance}
+After adding something to the database, we may want to do
+something extra; perhaps generating provenance
+information, perhaps checking or enforcing database
+consistency, or perhaps running a hook that causes some
+update in the frontend (cf. Note \ref{provenance}).
+Provisions of this sort will come later, as will
+short-hand convenience functions for making particularly
+common complex entries.
+\end{notate}
+
+\subsection{Importing \LaTeX\ documents} \label{importing}
+
+\begin{notate}{Importing sketch} \label{importing-sketch}
+The code in this section imports a document as a
+collection of (sub-)sections and notes.  It gathers the
+sections, sub-sections, and notes recursively and records
+their content in a tree whose nodes are places (Note
+\ref{places}) and whose links express the ``component-of''
+relation described in Note \ref{order-of-order}.
+
+This representation lets us see the geometric,
+hierarchical, structure of the document we've imported.
+It exemplifies a general principle, that geometric data
+should be represented by relationships between places, not
+direct relationships between strings.  This is because
+``the same'' string often appears in ``different'' places
+in any given document (e.g. a paper's many sub-sections
+titled ``Introduction'' will not all have the same
+content).
+
+What goes into the places is in some sense arbitrary.  The
+key is that whatever is \emph{in} or \emph{attached} to
+these places must tell us everything we need to know about
+the part of the document associated with that place
+(e.g. in the case of a note, its title and contents).
+That's over and above the \emph{structural} links which
+say how the places relate to one another.  Finally, all of
+these places and structural links will be added to a
+heading that represents the document as a whole.
+
+A natural convention we'll use will be to put the name
+of any document component that's associated with a given
+place into that place, and add all other information as
+annotations.
+\end{notate}
+
+\begin{notate}{Ordered versus unordered data} \label{ordered-vs-unordered}
+The code in this section is an example of one way to work
+with ordered data (i.e. \LaTeX\ documents are not just
+hierarchical, but the elements at each level of the
+hierarchy are also ordered).
+
+Since \emph{many} artifacts are hierachical (e.g. Lisp
+code), we should try to be compatible with \emph{native}
+methods for working with order (in the case of Lisp, feed
+the code into a Lisp processor and use CDR and CAR, etc.).
+
+We \emph{can} use triples such as (``rank'' ``1''
+``Fred'') and (``rank'' ``2'' ``Barney'') to talk about
+order.  There may be some SQL techniques that would help.
+(FYI, order can be handled very explicitly in Elephant!)
+
+In order to account for \emph{different} orderings, we
+need one more piece of data -- some explicit treatment of
+where the order \emph{is}; in other words, theories.
+(This table illustrates the fact that a heading is not so
+different from ``an additional triple''; indeed, the only
+reason to make them different is to have the extra
+convenience of having their elements be numbered.)
+
+\begin{center}
+\begin{tabular}{|lll|l|}
+\hline
+rank & 1 & Fred & Friday \\
+rank & 2 & Barney & Friday \\
+rank & 1 & Barney & Saturday \\
+rank & 2 & Fred & Saturday \\
+\hline
+\end{tabular}
+\end{center}
+\end{notate}
+
+\begin{notate}{The order of order} \label{order-of-order}
+The triples (``rank'' ``1'' ``Fred'') and (``rank'' ``2''
+``Barney'') mentioned in Note \ref{ordered-vs-unordered}
+are easy enough to read and understand; it might be more
+natural in some ways for us to say (``Fred'' ``rank''
+``1'') -- Fred has rank 1.  In this section, we're
+concerned with talking about the ordered parts of a
+document, and ($A$ $n$ $B$) seems like an intuitive way to
+say ``$A$'s $n$th component is $B$''.
+\end{notate}
+
+\begin{notate}{It's not overdoing it, right?}
+When importing \emph{this} document, we see links like the
+following.  I hope that's not ``overdoing it''.  (Take a
+look at Note \ref{get-article} and Note \ref{get-names} to
+see how we go about getting information out of the
+database.)  We could get rid of one link if theories were
+database objects (cf. Note
+\ref{theories-as-database-objects}).
+\end{notate}
+
+\begin{idea}
+"T557[P135|Web interface|.in.arxana.tex]"
+"T558[Future plans.9.P135|Web interface|]"
+"T559[T558[Future plans.9.P135|Web interface|].in.arxana.tex]"
+\end{idea}
+
+\begin{notate}{Importing in general} \label{importing-generally}
+We will eventually have a collection of parsers to get
+various kinds of documents into the system in various
+different ways (Note \ref{parsing}).  For now, this
+section gives a simple way to get some sorts of
+\LaTeX\ documents into the system, namely documents
+structured along the same lines as the document you're
+reading now!
+
+An interesting approach to parsing \emph{math} documents
+has been undertaken in the \LaTeX ML
+project.\footnote{{\tt http://dlmf.nist.gov/LaTeXML/}}
+Eventually it would be nice to get that level of detail
+here, too!  Emacsspeak is another example of a
+\LaTeX\ parser that deals with large-scale textual
+structures as well as smaller bits and
+pieces.\footnote{{\tt
+    http://www.cs.cornell.edu/home/raman/aster/aster-thesis.ps}}
+
+It would probably be useful to put together some parsers
+for HTML and wiki code soon.
+\end{notate}
+
+\begin{notate}{On `import-buffer'}
+This function imports \LaTeX\ documents, taking care of
+the non-recursive aspects of this operation.  It imports
+frontmatter (everything up to the first
+\verb+\begin{section}+), but assumes ``backmatter'' is
+trivial, and does not import it.  The imported material is
+classified as a ``document'' with the same name as the
+imported buffer.
+\end{notate}
+
+\begin{elisp}
+(defun import-buffer (&optional buffername)
+  (save-excursion
+    (set-buffer (get-buffer (or buffername
+                                (current-buffer))))
+    (goto-char (point-min))
+    (search-forward-regexp "\\\\begin{document}")
+    (search-forward-regexp "\\\\section")
+    (goto-char (match-beginning 0))
+    ;; other links will be made in the "heading of this
+    ;; document", but here we make a broader assertion.
+    (scholium buffername "is a" "document")
+    (scholium buffername
+              "has frontmatter"
+              (buffer-substring-no-properties
+               (point-min)
+               (point))
+              buffername)
+    ;;; These should maybe be scholia attached to
+    ;; root-coords (below), but for some reason that
+    ;; wasn't working so well -- investigate later --
+    ;; maybe it just wasn't good to run after running
+    ;; `import-within'.
+    (let* ((root-coords (place-item buffername nil
+                                    buffername))
+           (levels
+            '("section" "subsection" "subsubsection"))
+           (current-parent buffername)
+           (level-end nil)
+           (sections (import-within levels))
+           (index 0))
+      (while sections
+        (let ((coords (car sections)))
+          (setq index (1+ index))
+          (scholium root-coords
+                    index
+                    coords
+                    buffername))
+        (setq sections (cdr sections))))))
+\end{elisp}
+
+\begin{notate}{On `import-within'}
+Recurse through levels of sectioning to import
+\LaTeX\ code.
+
+It would be good if we could do something about sections
+that contain neither subsections nor notes (for example, a
+preface), or, more generally, about text that is not
+contained in any environment (possibly that appears before
+any section).  We'll save things like this for another
+editing round!
+
+For the moment, we've decided to build the document
+hierarchy with links that are blind to whether the $k$th
+component of a section is a note or a subsection.
+Children that are notes are attached in the subroutine
+`import-notes' and those that are sections are attached in
+`import-within'.  Users can find out what type of object
+they are looking at based on whether or not it ``has
+content''.
+
+Incidentally, when looking for the end of an importing
+level, `nil' is an OK result -- if this is the \emph{last}
+section at this level \emph{and} there is no subsequent
+section at a higher level.
+\end{notate}
+
+\begin{elisp}
+(defun import-within (levels)
+  (let ((this-level (car levels))
+        (next-level (car (cdr levels))) answer)
+    (while (re-search-forward
+            (concat
+             "^\\\\" this-level "{\\([^}\n]*\\)}"
+             "\\( +\\\\label{\\)?"
+             "\\([^}\n]*\\)?")
+            level-end t)
+      (let* ((name (match-string-no-properties 1))
+             (at (place-item name nil buffername))
+             (level-end
+              (or (save-excursion
+                    (search-forward-regexp
+                     (concat "^\\\\" this-level "{.*")
+                     level-end t))
+                  level-end))
+             (notes-end
+              (if next-level
+                  (or (progn (point)
+                             (save-excursion
+                               (search-forward-regexp
+                                (concat "^\\\\"
+                                        next-level "{.*")
+                                level-end t)))
+                      level-end)
+                level-end))
+             (index (let ((current-parent at))
+                      (import-notes notes-end)))
+             (subsections (let ((current-parent at))
+                            (import-within (cdr levels)))))
+        (while subsections
+          (let ((coords (car subsections)))
+            (setq index (1+ index))
+            (scholium at
+                      index
+                      coords
+                      buffername)
+            (setq subsections (cdr subsections))))
+        (setq answer (cons at answer))))
+    (reverse answer)))
+\end{elisp}
+
+\begin{notate}{On `import-notes'} \label{import-notes}
+We're going to make the daring assumption that the
+``textual'' portions of incoming \LaTeX\ documents are
+contained in ``Notes''.  That assumption is true, at
+least, for the current document.  The function returns the
+count of the number of notes imported, so that
+`import-within' knows where to start counting this
+section's non-note children.
+
+Would this same function work to import all notes from a
+buffer without examining its sectioning structure?  Not
+quite, but close! (Could be a fun exercise to fix this.)
+\end{notate}
+
+\begin{elisp}
+(defun import-notes (end)
+  (let ((index 0))
+    (while (re-search-forward (concat "\\\\begin{notate}"
+                                      "{\\([^}\n]*\\)}"
+                                      "\\( +\\\\label{\\)?"
+                                      "\\([^}\n]*\\)?")
+                              end t)
+      (let* ((name
+              (match-string-no-properties 1))
+             (tag (match-string-no-properties 3))
+             (beg
+              (progn (next-line 1)
+                     (line-beginning-position)))
+             (end
+              (progn (search-forward-regexp
+                      "\\\\end{notate}")
+                     (match-beginning 0)))
+             (coords (place-item name nil buffername)))
+        (setq index (1+ index))
+        (scholium current-parent
+                  index
+                  coords
+                  buffername)
+        ;; not in the heading
+        (scholium coords
+                  "has content"
+                  (buffer-substring-no-properties
+                   beg end))
+        (import-code-continuations coords)))
+    index))
+\end{elisp}
+
+\begin{notate}{On `import-code-continuations'} \label{import-code-continuations}
+This runs within the scope of `import-notes', to turn the
+series of Lisp chunks or other code snippets that follow a
+given note into a scholium attached to that note.  Each
+separate snippet becomes its own annotation.
+
+The ``conditional regexps'' used here only work with Emacs
+version 23 or higher.
+
+I'm noticing a problem with the way the `looking-at'
+form behaves.  It matches the expression in question,
+but then the match-end is reported as one character
+less than it supposed to be.  Maybe `looking-at' is
+just not as good as `re-search-forward'?  But it's
+what seems easiest to use.
+\end{notate}
+
+\begin{elisp}
+(defun import-code-continuations (coords)
+  (let ((possible-environments
+         "\\(1?:lisp\\|idea\\|common\\)"))
+    (while (looking-at
+            (concat "\n*?\\\\begin{"
+                    possible-environments
+                    "}"))
+      (let* ((beg (match-end 0))
+             (environment (match-string 1))
+             (end (progn (search-forward-regexp
+                          (concat "\\\\end{"
+                                  environment
+                                  "}"))
+                         (match-beginning 0)))
+             (content (buffer-substring-no-properties
+                       beg
+                       end)))
+        (scholium (scholium coords
+                            "has attachment"
+                            content)
+                  "has type"
+                  environment)))))
+\end{elisp}
+
+\begin{notate}{On `autoimport-arxana'} \label{autoimport-arxana}
+This just calls `import-buffer', and imports this document
+into the system.
+\end{notate}
+
+\begin{elisp}
+(defun autoimport-arxana ()
+  (interactive)
+  (import-buffer "arxana.tex"))
+\end{elisp}
+
+\begin{notate}{Importing textual links}
+Of course, it would be good to import the links that users
+make between articles, since then we can quickly navigate
+from an article to the various articles that cite that
+article, as well as follow the usual forward-directional
+links.  Indeed, we should be able to browse each article
+within a ``neighborhood'' of other related articles.
+(We'll need to import labels as well, of course.)
+\end{notate}
+
+\subsection{Browsing database contents} \label{browsing}
+
+\begin{notate}{Browsing sketch} \label{browsing-sketch}
+This section facilitates browsing of documents represented
+with structures like those created in Section
+\ref{importing}, and sets the ground for browsing other
+sorts of contents (e.g. collections of tasks, as in
+Section \ref{managing-tasks}).
+
+In order to facilitate general browsing, it is not enough
+to simply use `get-article' (Note \ref{get-article}) and
+`get-names' (Note \ref{get-names}), although these
+functions provide our defaults.  We must provide the means
+to find and display different things differently -- for
+example, a section's  table of contents will typically
+be displayed differently from its actual contents.
+
+Indeed, the ability to display and select elements of
+document sections (Note \ref{display-section}) is
+basically the core browsing deliverable.  In the process
+we develop a re-usable article selector (Note
+\ref{selector}; cf. Note \ref{browsing-tasks}).  This in
+turn relies on a flexible function for displaying
+different kinds of articles (Note \ref{display-article}).
+\end{notate}
+
+\begin{notate}{On `display-article'} \label{display-article}
+This function takes in the name of the article to display.
+Furthermore, it takes optional arguments `retriever' and
+`formatter', which tell it how to look up and/or format
+the information for display, respectively.
+
+Thus, either we make some statement up front (choosing our
+`formatter' based on what we already know about the
+article), or we decide what to display after making some
+investigation of information attached to the article, some
+of which may be retrieved and displayed (this requires
+that we specify a suitable `retriever' and a complementary
+`formatter').
+
+For example, the major mode in which to display the
+article's contents could be stored as a scholium attached
+to the article; or we might maintain some information
+about ``areas'' of the database that would tell us up
+front what which mode is associated with the current area.
+(The default is to simply insert the data with no markup
+whatsoever.)
+
+Observe that this works when no heading argument is given,
+because in that case `get-article' looks for \emph{all}
+place pseudonyms.  (But of course that won't work well
+when we have multiple theories containing things with the
+same names, so we should get used to using the heading
+argument.)
+
+(The business about requiring the data to be a sequence
+before engaging in further formatting is, of course, just
+a matter of expediency for making things work with the
+current dataset.)
+\end{notate}
+
+\begin{elisp}
+(defun display-article
+  (name &optional heading retriever formatter)
+  (interactive "Mname: ")
+  (let* ((data (if retriever
+                   (funcall retriever name heading)
+                 (get-article name heading))))
+    (when (and data (sequencep data))
+      (save-excursion
+        (if formatter
+            (funcall formatter data heading)
+          (pop-to-buffer (get-buffer-create
+                          "*Arxana Display*"))
+          (delete-region (point-min) (point-max))
+          (insert "NAME: " name "\n\n")
+          (insert data)
+          (goto-char (point-min)))))))
+\end{elisp}
+
+\begin{notate}{An interactive article selector} \label{selector}
+The function `get-names' (Note \ref{get-names}) and
+similar functions can give us a collection of articles.
+The next few functions provide an interactive
+functionality for moving through this collection to find
+the article we want to look at.
+
+We define a ``display style'' that the article selector
+uses to determine how to display various articles.  These
+display styles are specified by text properties attached
+to each option the selector provides.  Similarly, when
+we're working within a given heading, the relevant heading
+is also specified as a text property.
+
+At selection time, these text properties are checked to
+determine which information to pass along to
+`display-article'.
+\end{notate}
+
+\begin{elisp}
+(defvar display-style '((nil . (nil nil))))
+
+(defun thing-name-at-point ()
+  (buffer-substring-no-properties
+   (line-beginning-position)
+   (line-end-position)))
+
+(defun get-display-type ()
+  (get-text-property (line-beginning-position)
+                     'arxana-display-type))
+
+(defun get-relevant-heading ()
+  (get-text-property (line-beginning-position)
+                     'arxana-relevant-heading))
+
+(defun arxana-list-select ()
+  (interactive)
+  (apply 'display-article
+         (thing-name-at-point)
+         (get-relevant-heading)
+         (cdr (assoc (get-display-type)
+                     display-style))))
+
+(define-derived-mode arxana-list-mode fundamental-mode
+  "arxana-list" "Arxana List Mode.
+
+\\{arxana-list-mode-map}")
+
+(define-key arxana-list-mode-map (kbd "RET")
+            'arxana-list-select)
+\end{elisp}
+
+\begin{notate}{On `pick-a-name'} \label{pick-a-name}
+Here `generate' is the name of a function to call to
+generate a list of items to display, and `format' is a
+function to put these items (including any mark-up) into
+the buffer from which individiual items can then be
+selected.
+
+One simple way to get a list of names to display would be
+to reuse a list that we had already produced (this would
+save querying the database each time).  We could, in fact,
+store a history list of lists of names that had been
+displayed previously (cf. Note \ref{local-storage}).
+
+We'll eventually want versions of `generate' that provide
+various useful views into the data, e.g., listing all of
+the elements of a given section (Note
+\ref{display-section}).
+
+Finding all the elements that match a given search term,
+whether that's just normal text search or some kind of
+structured search would be worthwhile too.  Upgrading the
+display to e.g. color-code listed elements according to
+their type would be another nice feature to add.
+\end{notate}
+
+\begin{elisp}
+(defun pick-a-name (&optional generate format heading)
+  (interactive)
+  (let ((items (if generate
+                   (funcall generate)
+                 (get-names heading))))
+    (when items
+      (set-buffer (get-buffer-create "*Arxana Articles*"))
+      (toggle-read-only -1)
+      (delete-region (point-min)
+                     (point-max))
+      (if format
+          (funcall format items)
+        (mapc (lambda (item) (insert item "\n")) items))
+      (toggle-read-only t)
+      (arxana-list-mode)
+      (goto-char (point-min))
+      (pop-to-buffer (get-buffer "*Arxana Articles*")))))
+\end{elisp}
+
+\begin{notate}{On `display-section'} \label{display-section}
+When browsing a document, if you select a section, you
+should display a list of that section's constituent
+elements, be they notes or subsections.  The question
+comes up: when you go to display something, how do you
+know whether you're looking at the name of a section, or
+the name of an article?
+
+When you get the section's contents out of the database
+(Note \ref{get-section-contents})
+\end{notate}
+
+\begin{elisp}
+(defun display-section (name heading)
+  (interactive (list (read-string
+                      (concat
+                       "name (default "
+                       (buffer-name) "): ")
+                      nil nil (buffer-name))))
+  ;; should this pop to the Articles window?
+  (pick-a-name `(lambda ()
+                  (get-section-contents
+                   ,name ,heading))
+               `(lambda (items)
+                  (format-section-contents
+                   items ,heading))))
+
+(add-to-list 'display-style
+             '(section . (display-section
+                          nil)))
+\end{elisp}
+
+\begin{notate}{On `get-section-contents'} \label{get-section-contents}
+Sent by `display-section' (Note \ref{display-section})
+to `pick-a-name' as a generator for the table of contents
+of the section with the given name in the given heading.
+
+This function first finds the triples that begin with the
+(placed) name of the section, then checks to see which of
+these are in the heading of the document we're examinining
+(in other words, which of these links represent structural
+information about that document).  It also looks at the
+items found at the end of these links to see if they are
+sections or notes (``noteness'' is determined by them
+having content).  The links are then sorted by their
+middles (which show the order in which these components
+have in the section we're examining).  After this ordering
+information has been used for sorting, it is deleted, and
+we're left with just a list of names in the apropriate
+order together with an indication of their noteness.
+\end{notate}
+
+\begin{elisp}
+(Defun get-section-contents (name heading)
+  (let (contents)
+    (dolist (triple (triples-given-beginning
+                     `(1 ,(resolve-ambiguity
+                           (get-places name)))))
+      (when (triple-exact-match
+             `(2 ,(car triple)) "in" heading)
+        (let* ((number (print-middle triple))
+               (site (isolate-end triple))
+               (noteness
+                (when (triples-given-beginning-and-middle
+                       site "has content")
+                  t)))
+        (setq contents
+              (cons (list number
+                          (print-system-object
+                           (place-contents site))
+                          noteness)
+                    contents)))))
+    (mapcar 'cdr
+            (sort contents
+                  (lambda (component1 component2)
+                    (< (parse-integer (car component1))
+                       (parse-integer (car component2))))))))
+\end{elisp}
+
+\begin{notate}{On `format-section-contents'} \label{format-section-contents}
+A formatter for document contents, used by
+`display-document' (Note \ref{display-document}) as input
+for `pick-a-name' (Note \ref{pick-a-name}).
+
+Instead of just printing the items one by one,
+like the default formatter in `pick-a-name'  does,
+this version adds appropriate text properties, which
+we determine based the second component of
+of `items' to format.
+\end{notate}
+
+\begin{elisp}
+(defun format-section-contents (items heading)
+  ;; just replicating the default and building on that.
+  (mapc (lambda (item)
+          (insert (car item))
+          (let* ((beg (line-beginning-position))
+                 (end (1+ beg)))
+            (unless (second item)
+              (put-text-property beg end
+                                 'arxana-display-type
+                                 'section))
+            (put-text-property beg end
+                               'arxana-relevant-heading
+                               heading))
+          (insert "\n"))
+        items))
+\end{elisp}
+
+\begin{notate}{On `display-document'} \label{display-document}
+When browsing a document, you should first display its
+top-level table of contents.  (Most typically, a list of
+all of that document's major sections.)  In order to do
+this, we must find the triples that are begin at the node
+representing this document \emph{and} that are in the
+heading of this document.  This boils down to treating the
+document's root as if it was a section and using the
+function `display-section' (Note \ref{display-section}).
+\end{notate}
+
+\begin{elisp}
+(defun display-document (name)
+  (interactive (list (read-string
+                      (concat
+                       "name (default "
+                       (buffer-name) "): ")
+                      nil nil (buffer-name))))
+  (display-section name name))
+\end{elisp}
+
+\begin{notate}{Work with `heading' argument}
+We should make sure that if we know the heading we're
+working with (e.g. the name of the document we're
+browsing) that this information gets communicated in the
+background of the user interaction with the article
+selector.
+\end{notate}
+
+\begin{notate}{Selecting from a hierarchical display} \label{hierarchical-display}
+A fancier ``article selector'' would be able to display
+several sections with nice indenting to show their
+hierarchical order.
+\end{notate}
+
+\begin{notate}{Browser history tricks} \label{history-tricks}
+I want to put together (or put back together) something
+similar to the multihistoried browser that I had going in
+the previous version of Arxana and my Emacs/Lynx-based web
+browser, Nero\footnote{{\tt http://metameso.org/~joe/nero.el}}.
+The basic features are:
+(1) forward, back, and up inside the structure of a given
+document; (2) switch between tabs.  More advanced features
+might include: (3) forward and back globally across all
+tabs; (4) explicit understanding of paths that loop.
+
+These sorts of features are independent of the exact
+details of what's printed to the screen each time
+something is displayed.  So, for instance, you could flip
+between section manifests a la Note \ref{display-section},
+or between hierarchical displays a la Note
+\ref{hierarchical-display}, or some combination; the key
+thing is just to keep track in some sensible way of
+whatever's been displayed!
+\end{notate}
+
+\begin{notate}{Local storage for browsing purposes} \label{local-storage}
+Right now, in order to browse the contents of the
+database, you need to query the database every time.  It
+might be handy to offer the option to cache names of
+things locally, and only sync with the database from time
+to time.  Indeed, the same principle could apply in
+various places; however, it may also be somewhat
+complicated to set up.  Using two systems for storage, one
+local and one permanent, is certainly more heavy-duty than
+just using one permanent storage system and the local
+temporary display.  However, one thing in favor of local
+storage systems is that that's what I used in the the
+previous prototype of Arxana -- so some code already
+exists for local storage!  (Caching the list of
+\emph{names} we just made a selection from would be one
+simple expedient, see Note \ref{pick-a-name}.)
+\end{notate}
+
+\begin{notate}{Hang onto absolute references}
+Since `get-article' (Note \ref{get-article}) translates
+strings into their ``place pseudonyms'', we may want to
+hang onto those pseudonyms, because they are, in fact, the
+absolute references to the objects we end up working with.
+In particular, they should probably go into the
+text-property background of the article selector, so it
+will know right away what to select!
+\end{notate}
+
+\subsection{Exporting \LaTeX\ documents$^*$}
+
+\begin{notate}{Roundtripping}
+The easiest test is: can we import a document into the
+system and then export it again, and find it unchanged?
+\end{notate}
+
+\begin{notate}{Data format}
+We should be able to \emph{stably} import and export a
+document, as well as export any modifications to the
+document that were generated within Arxana.  This means
+that the exporting functions will have to read the data
+format that the importing functions use, \emph{and} that
+any functions that edit document contents (or structure)
+will also have to use the same format.  Furthermore,
+\emph{browsing} functions will have to be somewhat aware
+of this format.  So, this is a good time to ask -- did we
+use a good format?
+\end{notate}
+
+\subsection{Editing database contents$^*$} \label{editing}
+
+\begin{notate}{Roundtripping, with changes}
+Here, we should import a document into the system and then
+make some simple changes, and after exporting, check with
+diff to make sure the changes are correct.
+\end{notate}
+
+\begin{notate}{Re-importing}
+One nice feature would be a function to ``re-import'' a
+document that has changed outside of the system, and make
+changes in the system's version whereever changes appeared
+in the source version.
+\end{notate}
+
+\begin{notate}{Editing document structure}
+The way we have things set up currently, it is one thing
+to make a change to a document's textual components, and
+another to change its structure.  Both types of changes
+must, of course, be supported.
+\end{notate}
+
+\section{Applications}
+
+\subsection{Managing tasks} \label{managing-tasks}
+
+\begin{notate}{What are tasks?}
+Each task tends to have a \emph{name}, a
+\emph{description}, a collection of \emph{prerequisite
+  tasks}, a description of other \emph{material
+  dependencies}, a \emph{status}, some \emph{justification
+  of that status}, a \emph{creation date}, and an
+\emph{estimated time of completion}.  There might actually
+be several ``estimated times of completion'', since the
+estimate would tend to improve over time.  To really
+understand a task, one should keep track of revisions like
+this.
+\end{notate}
+
+\begin{notate}{On `store-task-data'} \label{store-task-data}
+Here, we're just filling in a frame.  Since ``filling in a
+frame'' seems like the sort of operation that might happen
+over and over again in different contexts, to save space,
+it would probably be nice to have a macro (or similar)
+that would do a more general version of what this function
+does.
+\end{notate}
+
+\begin{elisp}
+(Defun store-task-data
+  (name description prereqs materials status
+        justification submitted eta)
+  (add-triple name "is a" "task")
+  (add-triple name "description" description)
+  (add-triple name "prereqs" prereqs)
+  (add-triple name "materials" materials)
+  (add-triple name "status" status)
+  (add-triple name "status justification" justification)
+  (add-triple name "date submitted" submitted)
+  (add-triple name "estimated time of completion" eta))
+\end{elisp}
+
+\begin{notate}{On `generate-task-data'} \label{generate-task-data}
+This is a simple function to create a new task matching
+the description above.
+\end{notate}
+
+\begin{elisp}
+(defun generate-task-data ()
+  (interactive)
+  (let ((name (read-string "Name: "))
+        (description (read-string "Description: "))
+        (prereqs (read-string
+                  "Task(s) this task depends on: "))
+        (materials (read-string "Material dependencies: "))
+        (status (completing-read
+                 "Status (tabled, in progress, completed):
+                 " '("tabled" "in progress" "completed")))
+        (justification (read-string "Why this status? "))
+        (submitted
+         (read-string
+          (concat "Date submitted (default "
+                  (substring (current-time-string) 0 10)
+                  "): ")
+          nil nil (substring (current-time-string) 0 10)))
+        (eta
+         (read-string "Estimated date of completion:")))
+    (store-task-data name description prereqs materials
+                     status
+                     justification submitted eta)))
+\end{elisp}
+
+\begin{notate}{Possible enhancements to `generate-task-data'}
+In order to make this function very nice, it would be good
+to allow ``completing read'' over known tasks when filling
+in the prerequisites.  Indeed, it might be especially nice
+to offer a type of completing read that is similar in some
+sense to the tab-completion you get when completing a file
+name, i.e., quickly completing certain sub-strings of the
+final string (in this case, these substrings would
+correspond to task areas we are progressively zooming down
+into).
+
+As for the task description, rather than forcing the user
+to type the description into the minibuffer, it might be
+nice to pop up a separate buffer instead (a la the
+Emacs/w3m textarea).  If we had a list of all the known
+tasks, we could offer completing-read over the names of
+existing tasks to generate the list of `prereqs'.  It
+might be nice to systematize date data, so we could more
+easily e.g. sort and display task info ``by date''.
+(Perhaps we should be working with predefined database
+types for dates and so on; but see Note
+\ref{choice-of-database}.)
+
+Also, before storing the task, it might be nice to offer
+the user the chance to review the data they entered.
+\end{notate}
+
+\begin{notate}{On `get-filler'} \label{get-filler}
+Just a wrapper for `triples-given-beginning-and-middle'.
+(Maybe add `heading' as an option here.)
+\end{notate}
+
+\begin{elisp}
+(Defun get-filler (frame slot)
+  (third (first
+          (print-triples
+           (triples-given-beginning-and-middle frame
+                                               slot)))))
+\end{elisp}
+
+\begin{notate}{On `get-task'} \label{get-task}
+Uses `get-filler' (Note \ref{get-filler}) to assemble the
+elements of a task's frame.
+\end{notate}
+
+\begin{elisp}
+(Defun get-task (name)
+  (when (triple-exact-match name "is a" "task")
+    (list (get-filler name "description")
+          (get-filler name "prereqs")
+          (get-filler name "materials")
+          (get-filler name "status")
+          (get-filler name "status justification")
+          (get-filler name "date submitted")
+          (get-filler name
+                      "estimated time of completion"))))
+\end{elisp}
+
+\begin{notate}{On `review-task'} \label{review-task}
+This is a function to review a task by name.
+\end{notate}
+
+\begin{elisp}
+(defun review-task (name)
+  (interactive "MName: ")
+  (let ((task-data (get-task name)))
+    (if task-data
+        (display-task task-data)
+      (message "No data."))))
+
+(defun display-task (data)
+  (save-excursion
+    (pop-to-buffer (get-buffer-create
+                    "*Arxana Display*"))
+    (delete-region (point-min) (point-max))
+    (insert "NAME: " name "\n\n")
+    (insert "DESCRIPTION: " (first data) "\n\n")
+    (insert "TASKS THIS TASK DEPENDS ON: "
+            (second data) "\n\n")
+    (insert "MATERIAL DEPENDENCIES: "
+            (third data) "\n\n")
+    (insert "STATUS: " (fourth data) "\n\n")
+    (insert "WHY THIS STATUS?: " (fifth data) "\n\n")
+    (insert "DATE SUBMITTED:" (sixth data) "\n\n")
+    (insert "ESTIMATED TIME OF COMPLETION: "
+            (seventh data) "\n\n")
+    (goto-char (point-min))
+    (fill-individual-paragraphs (point-min) (point-max))))
+\end{elisp}
+
+\begin{notate}{Possible enhancements to `review-task'}
+Breaking this down into a function to select the task and
+another function to display the task would be nice.  Maybe
+we should have a generic function for selecting any object
+``by name'', and then special-purpose functions for
+displaying objects with different properties.
+
+Using text properties, we could set up a ``field-editing
+mode'' that would enable you to select a particular field
+and edit it independently of the others.  Another more
+complex editing mode would \emph{know} which fields the
+user had edited, and would store all edits back to the
+database properly.  See Section \ref{editing} for more on
+editing.
+\end{notate}
+
+\begin{notate}{Browsing tasks} \label{browsing-tasks}
+The function `pick-a-name' (Note \ref{pick-a-name}) takes
+two functions, one that finds the names to choose from,
+and the other that says how to present these names.  We
+can therefore build `pick-a-task' on top of `pick-a-name'.
+\end{notate}
+
+\begin{elisp}
+(Defun get-tasks ()
+  (mapcar #'first
+          (print-triples
+           (triples-given-middle-and-end "is a" "task")
+           t)))
+
+(defun pick-a-task ()
+  (interactive)
+  (pick-a-name
+   'get-tasks
+   (lambda (items)
+     (mapc (lambda (item)
+             (let ((pos (line-beginning-position)))
+               (insert item)
+               (put-text-property pos (1+ pos)
+                                  'arxana-display-type
+                                  'task)
+               (insert "\n"))) items))))
+
+(add-to-list 'display-style
+             '(task . (get-task display-task)))
+\end{elisp}
+
+\begin{notate}{Working with theories}
+Presumably, like other related functions, `get-tasks'
+should take a heading argument.
+\end{notate}
+
+\begin{notate}{Check display style}
+Check if this works, and make style consistent between
+this usage and earlier usage.
+\end{notate}
+
+\begin{notate}{Example tasks}
+It might be fun to add some tasks associated with
+improving Arxana, just to show that it can be done...
+maybe along with a small importer to show how importing
+something without a whole lot of structure can be easy.
+\end{notate}
+
+\subsection{Other ideas$^*$}
+
+\begin{notate}{A browser within a browser} \label{browser-within}
+All the stuff we're doing with triples can be superimposed
+over the existing web and existing web interfaces, by, for
+example, writing a web browser as a web app, and in this
+``browser within a browser'' offer the ability to annotate
+and rewrite other people's web pages, produce 3rd-party
+redirects, and so forth, sharing these mods with other
+subscribers to the service.  (Already websites such as the
+short-lived scrum.diddlyumptio.us have offered limited
+versions of ``web annotation'', but, so far, what one can
+do with such services seems quite weak compared with
+what's possible.)
+\end{notate}
+
+\begin{notate}{Improvements to the PlanetMath backend}
+From one point of view, the SQL tables are the main thing
+in Noosphere.  We could say that getting the things out of
+SQL and storing new things there is what Noosphere mainly
+does.  Following this line of thought, anything that
+adjusts these tables will do just as well, e.g., it
+shouldn't be terribly hard to develop an email-based
+front-end.  But rather than making Arxana work with the
+Noosphere relational table system, it is probably
+advantageous to translate the data from these tables into
+the scholium system.
+\end{notate}
+
+\begin{notate}{A new communication platform}
+One of the premier applications I have in mind is a new
+way to handle communications in an online-forum.  I have
+previously called this ``subchanneling'', but really,
+joining channels is just as important.
+\end{notate}
+
+\begin{notate}{Some tutorials}
+It would be interesting to write a tutorial for Common
+Lisp or just about any other topic with this system.  For
+example, some little ``worksheets'' or ``gymnasia'' that
+will help solidify user knowledge in topics on which
+questions keep appearing.
+\end{notate}
+
+\section{Topics of philosophical interest}
+
+\begin{notate}{Research and development}
+In Note \ref{theoretical-context}, I mentioned a model
+that could apply in many contexts; it is an essentially
+metaphysical conception.  I'm pretty sure that the data
+model of Note \ref{data-model} provides a general-enough
+framework to represent anything we might find ``out
+there''.  However, even if this is the case, questions as
+to \emph{efficient} means of working with such data still
+abound (cf. Note \ref{models-of-theories}, Note
+\ref{use-of-views}).
+
+I propose that along with \emph{development} of Arxana as
+a useful system for \emph{doing} ``commons-based peer
+production'' should come a \emph{research} programme for
+understanding in much greater detail what ``commons-based
+peer production'' \emph{is}.  Eventually we may want to
+change the name of the subject of study to reflect still
+more general ideas of resource use.
+
+While the ``frontend'' of this research project is
+anthropological, the ``backend'' is much closer to
+artificial intelligence.  On this level, the project is
+about understanding \emph{effective} means for solving
+human problems.  Often this will involve decomposing
+events and processes into constituent elements, making
+increasingly detailed treatments along the lines described
+in Note \ref{arxana}.
+\end{notate}
+
+\begin{notate}{The relationship between text and commentary}
+Text under revision might be marked up by a copyeditor: in
+cases like these, the interpretation is clear.  However,
+what about marginalia with looser interpretations?  These
+seem to become part of the copy of the text they are
+attached to.  What about steering processes applied to a
+given course of action?  How about the relationship of
+thoughts or words to perception and action?  How can we
+lower the barrier between conception and action, while
+still maintaining some purchase on wisdom?
+
+You see, a lot of issues in life have to do with overlays,
+multi-tracking, interchange between different systems; and
+in these terms, a lot of philosophy reduces to ``media
+awareness'' which extends into more and more immediate
+contexts (Note \ref{theoretical-context}).
+\end{notate}
+
+\begin{notate}{Heuristic flow}
+Continuing the notion above: one does not need a
+fully-developed ``heading'' of work in order to do work --
+instead, one wants some straightforward heuristics that
+will enable the desired work to get done.  So, even
+supposing the work is ``heading building'', it can progress
+without becoming overwhelmed in abstractions -- because
+theories and heuristics are different things.
+\end{notate}
+
+\begin{notate}{Limits of simple languages} \label{simple-languages}
+Triples are frequently ``subject, verb, object''
+statements, although with the annotation features, we can
+modify any part of any such statement; for example, we
+can apply an adverb to a given verb.
+
+``Tags'', of course, already provide ``subject,
+predicate'' relationships.  It will be interesting to
+examine the degree to which human languages can be mapped
+down into these sorts of simple languages.  What features
+are needed to make such languages \emph{useful}?  (Lisp's
+`car' and `cdr' seem related to the idea of making
+predicates useful.)
+
+How are triples and predicates ``enough''?  What, if
+anything, do they lack?  The difference between triples
+and predicates illustrates the issue.  How should we
+characterize Arxana's additions to Lisp?
+\end{notate}
+
+\begin{notate}{Higher dimensions}
+Why stop with three components?  Why not have $(A, B, C,
+D, T)$ represent a semantic relationship between all of
+$A$, $B$, $C$, and $D$ (in heading $T$, of course)?
+Actually, there is no reason to stop apart from the fact
+that I want to explore simple languages (Note
+\ref{simple-languages}).  In real life, things are not as
+simple, and we should be ready to deal with the
+complexities! (Cf., for example, Note \ref{pointing}).
+\end{notate}
+
+\section{Future plans}
+
+\begin{notate}{Development pathways}
+To the extent that it's possible, I'd like to maintain a
+succinct non-linear roadmap in which tasks are outlined
+and prioritized, and some procedural details are made
+concrete.  Whenever relevant this map should point into
+the current document.  I'll begin by revising the plans
+I've used so far!\footnote{{\tt
+    http://metameso.org/files/plan-arxana.pdf}} Over the
+next several months, I'd like to see these plans develop
+into a genuine production machine, and see the machine
+begin to stabilize its operations.
+\end{notate}
+
+\begin{notate}{Theories as database objects} \label{theories-as-database-objects}
+We're just beginning to treat theories as database
+objects; I expect there will be more work to do to make
+this work really well.  We'll want to make some test
+cases, like building a ``theory of chess'', or even just
+describing a particular chess board; cf. Note
+\ref{partial-image}.
+\end{notate}
+
+\begin{notate}{Search engine/elements} \label{search-engine}
+One of the features that came very easy in the Emacs-only
+prototype was textual search.  With the strings stored in
+a database, Sphinx seems to be the most suitable search
+engine to use.  It is tempting to try to make our own
+inverted index using triples, so that text-based search
+can be even more directly integrated with semantic search.
+(Since the latest version(s) of Sphinx can act to some
+extent like a MySQL database, we almost have a direct
+connection in the backend, but since Sphinx is not
+\emph{the same} database, one would at least need some
+glue code to effect joins and so forth.)
+
+More to the point, it is important for this project that
+the scholia-based document model be transparently extended
+down to the level of words and characters.  It may be
+helpful to think about text as \emph{always being}
+hypertext; a document as a heading; and a word in the
+inverted index as a frame.
+\end{notate}
+
+\begin{notate}{Pointing at database elements and other things} \label{pointing}
+We will want to be able to point at other tables and at
+other sorts of objects and make use of their contents.
+The plan is that our triples will provide a sort of guide
+or backbone superimposed over a much larger data system.
+\end{notate}
+
+\begin{notate}{Feature-chase}
+There are lots of different features that could be
+explored, for example: multi-dimensional history lists; a
+useful treatment of ``clusions''; MS Word-like colorful
+annotations; etc.  Many of these features are already
+prototyped.\footnote{See footnote \ref{old-version}.}
+\end{notate}
+
+\begin{notate}{Regression testing}
+Along with any major feature chase, we should provide
+and maintain a regression testing suite.
+\end{notate}
+
+\begin{notate}{Deleting and changing things}
+How will we deal with unlinking, disassociating,
+forgetting, entropy, and the like?  Changes can perhaps
+be modeled by an insertion following a deletion, and,
+as noted, we'll need effective ways to represent and
+manage change (Note \ref{change}).
+\end{notate}
+
+\begin{notate}{Tutorial}
+Right now the system is simple enough to be pretty much
+self-explanatory, but if it becomes much more complicated,
+it might be helpful to put together a simple guide to some
+likely-to-be-interesting features.
+\end{notate}
+
+\begin{notate}{Computing possible paths and connections}
+If we can find all the \emph{direct} paths from one node
+to another using `triples-given-beginning-and-end', can we
+inject some algorthms for finding longer, indirect paths
+into the system, and find ways to make them useful?
+
+Similarly, we can satisfy local conditions (Note
+\ref{satisfy-conditions}), but we'll want to deal with
+increasingly ``non-local'' conditions (even just using the
+logical operator ``or'', instead of ``and'', for example).
+\end{notate}
+
+\begin{notate}{Monster Mountain}
+In Summer 2007, we checked out the Monster Mountain MUD
+server\footnote{{\tt http://code.google.com/p/mmtn/}},
+which would enable several users to interact with one
+LISP, instead of just one database.  This would have a
+number of advantages, particularly for exploring
+``scholiumific programming'', but also towards fulfilling
+the user-to-user interaction objective stated in Note
+\ref{theoretical-context}. I plan to explore this after
+the primary goal of multi-user interaction with the
+database has been solidly completed.
+\end{notate}
+
+\begin{notate}{Web interface}
+A finished web interface may take a considerable amount of
+work (if the complexity of an interesting Emacs interface
+is any indication), but the basics shouldn't be hard to
+put together soon.
+\end{notate}
+
+\begin{notate}{Parsing input} \label{parsing}
+Complicated objects specified in long-hand (e.g. triples
+pointing to triples) can be read by a relatively simple
+parser -- which we'll have to write!  The simplest goal
+for the parser would be to be able to distinguish between
+a triple and a string -- presumably that much isn't hard.
+And of course, building complexes of triples that
+represent statements from natural language is a good
+long-term goal. (Right now, our granularity level is set
+much higher.)
+\end{notate}
+
+\begin{notate}{Choice of database} \label{choice-of-database}
+I expect Elephant\footnote{{\tt
+    http://common-lisp.net/project/elephant/}} may become
+our preferred database at some point in the future; we are
+currently awaiting changes to Elephant that make nested
+queries possible and efficient.  Some core queries related
+to managing a database of semantic links with the current
+Elephant were constructed by Ian Eslick, Elephant's
+maintainer.\footnote{{\tt
+    http://planetx.cc.vt.edu/\~{}jcorneli/arxana/variant-4.lisp}}
+
+On the other hand, it might be reasonable to use an Emacs
+database and redo the whole thing to work in Emacs
+(again), e.g. for single-user applications or users who
+want to work offline a lot of the time.
+\end{notate}
+
+\begin{notate}{Different kinds of theories}
+Theories or variants thereof are of course already popular
+in other knowledge representation contexts.\footnote{{\tt
+    http://www.cyc.com/cycdoc/vocab/mt-expansion-vocab.html}}$^{,}$\footnote{{\tt
+    http://www.stanford.edu/\~{}kdevlin/HHL\_SituationTheory.pdf}}
+We'll want to adopt some useful techniques for knowledge
+management as soon as the core systems are ready.
+
+Various notions of a mathematical theory
+exist.\footnote{{\tt
+    http://planetmath.org/encyclopedia/Theory.html}} It
+would be nice to be able to assign specific logic to
+theories in Arxana, following the ``little theories''
+design of e.g. IMPS.\footnote{{\tt
+    http://imps.mcmaster.ca/manual/node13.html}}
+\end{notate}
+
+\section{Conclusion} \label{conclusion}
+
+\begin{notate}{Ending and beginning again}
+This is the end of the Arxana system itself; the
+appendices provide some ancillary tools, and some further
+discussion.  Contributions that support the development of
+the Arxana project are welcome.
+\end{notate}
+
+\appendix
+
+\section{Appendix: Auto-setup} \label{appendix-setup}
+
+\begin{notate}{Setting up auto-setup}
+This section provides code for satifying dependencies and
+setting up the program.  This code assumes that you are
+using a Debian/APT-based system (but things are not so
+different using say, Fedora or Fink; writing a
+multi-package-manager-friendly installer shouldn't be
+hard).  Of course, feel free to set things up differently
+if you have something else in mind!
+\end{notate}
+
+\begin{elisp}
+(defalias 'set-up 'shell-command)
+
+(defun alternative-set-up (string)
+  (save-excursion
+    (pop-to-buffer (get-buffer-create "*Arxana Help*"))
+    (goto-char (point-max))
+    (insert string "\n")))
+
+(defun set-up-arxana-environment ()
+  (interactive)
+  (if (y-or-n-p
+       "Run commands (y) (or just show instructions)? ")
+      (fset 'set-up 'shell-command)
+    (fset 'set-up 'alternative-set-up))
+  (when (y-or-n-p "Install dependencies? ")
+    (set-up "mkdir ~/arxana")
+    (set-up "cd arxana"))
+
+  (when (y-or-n-p "Download latest Arxana? ")
+    (set-up "wget http://metameso.org/files/arxana.tex"))
+
+  (unless (y-or-n-p "Is your emacs good enough?... ")
+    (set-up
+     (concat "cvs -z3 -d"
+             ":pserver:anonymous@cvs.savannah.gnu.org:"
+             "/sources/emacs co emacs"))
+    (set-up "mv emacs ~")
+    (set-up "cd ~/emacs")
+    (set-up "./configure && make bootstrap")
+    (set-up "cd ~/arxana"))
+
+  (defvar pac-man nil)
+
+  (cond ((y-or-n-p
+          "Do you use an apt-based package manager? ")
+         (setq pac-man "apt-get"))
+        (t (message
+            "OK, get Lisp and SQL on your own, then!")))
+
+  (when pac-man
+    (when (y-or-n-p "Install Common Lisp? ")
+      (set-up (concat pac-man " install sbcl")))
+
+    (when (y-or-n-p "Install Postgresql? ")
+      (set-up (concat pac-man " install postgresql"))
+      (when (y-or-n-p "Help setting up PostgreSQL? ")
+        (save-excursion
+          (pop-to-buffer (get-buffer-create "*Arxana Help*"))
+          (insert "As superuser (root),
+edit /etc/postgresql/7.4/main/pg_hba.conf
+make sure it says this:
+host all all 127.0.0.1 255.255.255.255 trust
+then edit /etc/postgresql/7.4/main/postgresql.conf
+and make it say
+tcpip_socket = true
+then restart:
+/etc/init.d/postgresql-7.4 restart
+su postgres
+createuser username
+exit
+as username, run
+createdb -U username\n")))))
+
+  (when (y-or-n-p "Install SLIME...? ")
+    (set-up (concat "cvs -d :pserver:anonymous"
+                           ":anonymous@common-lisp.net:"
+                           "/project/slime/cvsroot co slime"))
+    (set-up
+     (concat "echo \";; Added to ~/.emacs for Arxana:\n\n"
+             "(add-to-list 'load-path \"~/slime/\")\n"
+             "(setq inferior-lisp-program \"/usr/bin/sbcl\")\n"
+             "(require 'slime)\n"
+             "(slime-setup '(slime-repl))\n\n\""
+             "| cat - ~/.emacs > ~/updated.emacs &&"
+             "mv ~/updated.emacs ~/.emacs")))
+
+  (when (y-or-n-p "Set up Common Lisp environment? ")
+    (set-up "mkdir ~/.sbcl")
+    (set-up "mkdir ~/.sbcl/site")
+    (set-up "mkdir ~/.sbcl/systems")
+    (set-up "cd ~/.sbcl/site")
+    (set-up (concat "wget http://files.b9.com/"
+                    "clsql/clsql-latest.tar.gz"))
+    (set-up "tar -zxf clsql-4.0.3.tar.gz")
+    (set-up (concat "wget http://files.b9.com/"
+                           "uffi/uffi-latest.tar.gz"))
+    (set-up "tar -zxf uffi-1.6.0.tar.gz")
+    (set-up (concat "wget http://files.b9.com/"
+                           "md5/md5-1.8.5.tar.gz"))
+    (set-up "tar -zxf md5-1.8.5.tar.gz")
+    (set-up "cd ~/.sbcl/systems")
+    (set-up "ln -s ../site/md5-1.8.5/md5.asd .")
+    (set-up "ln -s ../site/uffi-1.6.0/uffi.asd .")
+    (set-up "ln -s ../site/clsql-4.0.3/clsql.asd .")
+    (set-up "ln -s ../site/clsql-4.0.3/clsql-uffi.asd .")
+    (set-up (concat "ln -s ../site/clsql-4.0.3/"
+                           "clsql-postgresql-socket.asd ."))
+    (set-up "ln -s ~/arxana/arxana.asd ."))
+
+  (when (y-or-n-p "Modify ~/.sbclrc so CL always starts Arxana? ")
+    (set-up
+     (concat "echo \";; Added to ~/.sbclrc for Arxana:\n\n"
+             "(require 'asdf)\n\n"
+             "(asdf:operate 'asdf:load-op 'swank)\n"
+             "(setf swank:*use-dedicated-output-stream* nil)\n"
+             "(setf swank:*communication-style* :fd-handler)\n"
+             "(swank:create-server :port 4006 :dont-close t)\n\n"
+             "(asdf:operate 'asdf:load-op 'clsql)\n"
+             "(asdf:operate 'asdf:load-op 'arxana)\n"
+             "(in-package arxana)\n"
+             "(connect-to-database)\n"
+             "(locally-enable-sql-reader-syntax)\n\n\""
+             "| cat ~/.sbclrc - > ~/updated.sbclrc &&"
+             "mv ~/updated.sbclrc ~/.sbclrc")))
+
+  (when (y-or-n-p "Install Monster Mountain? ")
+    (set-up "cd ~/.sbcl/systems")
+    (set-up (concat
+                    "darcs get http://common-lisp.net/project/"
+                    "bordeaux-threads/darcs/bordeaux-threads/"))
+    (set-up (concat
+                    "svn checkout svn://common-lisp.net/project/"
+                    "usocket/svn/usocket/trunk usocket-svn"))
+    ;; I've had problems with this approach to setting cclan
+    ;; mirror...
+    (set-up
+     (concat
+      "wget \"http://ww.telent.net/cclan-choose-mirror"
+      "?M=http%3A%2F%2Fthingamy.com%2Fcclan%2F\""))
+    (set-up (concat "wget http://ww.telent.net/cclan/"
+                           "split-sequence.tar.gz"))
+    (set-up "tar -zxf split-sequence.tar.gz")
+    (set-up
+     (concat "svn checkout http://mmtn.googlecode.com/"
+             "svn/trunk/ mmtn-read-only"))
+    (set-up
+     "ln -s ~/bordeaux-threads/bordeaux-threads.asd .")
+    (set-up "ln -s ~/usocket-svn/usocket.asd .")
+    (set-up "ln -s ~/split-sequence/split-sequence.asd .")
+    (set-up "ln -s ~/mmtn/src/mmtn.asd .")))
+\end{elisp}
+
+\begin{notate}{Postgresql on Fedora}
+There are some slightly different instructions for
+installing postgresql on Fedora; the above will be
+changed to include them, but for now, check them
+out on the
+web.\footnote{{\tt http://www.flmnh.ufl.edu/linux/install\_postgresql.htm}}
+\end{notate}
+
+\begin{notate}{Using MySQL and CLISP instead} \label{backend-variant}
+Since my OS X box seems to have a variety of confusing
+PostgreSQL systems already installed (which I'm not sure
+how to configure), and CLISP is easy to install with fink,
+I thought I'd try a different set up for simplicity and
+variety.
+
+In order to make it work, I enabled root user on Mac OS X
+per instructions on web, and installed and configured
+mysql; used a slight modification of the strings table
+described previously; download and installed
+cffi\footnote{{\tt
+    http://common-lisp.net/project/cffi/releases/cffi\_latest.tar.gz}};
+changed the definition of `connect-to-database' in
+Arxana's utilities.lisp; doctored up my ~/.clisprc.lisp;
+and changed how I started Lisp.  Details below.
+\end{notate}
+
+\begin{idea}
+;; on the shell prompt
+sudo apt-get install mysql
+sudo mysqld_safe --user=mysql &
+sudo daemonic enable mysql
+sudo mysqladmin -u root password root
+mysql --user=root --password=root -D test
+create database joe; grant all on joe.* to joe@localhost
+identified by 'joe'
+
+;; in tabledefs.lisp
+(execute-command "CREATE TABLE strings (
+   id SERIAL PRIMARY KEY,
+   text TEXT,
+   UNIQUE INDEX (text(255))
+);")
+
+;; in ~/asdf-registry/ or whatever you've designated as
+;; your asdf:*central-registry*
+ln -s ~/cffi_0.10.4/cffi-uffi-compat.asd .
+ln -s ~/cffi_0.10.4/cffi.asd .
+
+;; In utilities.lisp
+(defun connect-to-database ()
+   (connect `("localhost" "joe" "joe" "joe")
+            :database-type :mysql))
+
+;; In ~/.clisprc.lisp
+(asdf:operate 'asdf:load-op 'clsql)
+(push "/sw/lib/mysql/"
+CLSQL-SYS:*FOREIGN-LIBRARY-SEARCH-PATHS*)
+
+;; From SLIME prompt, and not in ~/.clisprc.lisp
+(in-package #:arxana)
+(connect-to-database)
+(locally-enable-sql-reader-syntax)
+\end{idea}
+
+\begin{notate}{Installing Sphinx}
+Here are some tips on how to install and configure
+Sphinx.
+\end{notate}
+
+\begin{idea}
+;; Fedora/Postgresql flavor
+yum install postgresql-devel
+./configure --without-mysql
+  --with-pgsql
+  --with-pgsql-libs=/usr/lib/pgsql/
+  --with-pgsql-includes=/usr/include/pgsql
+
+;; Fink/MySQL flavor
+./configure --with-mysql
+  --with-mysql-includes=/sw/include/mysql
+  --with-mysql-libs=/sw/lib/mysql
+\end{idea}
+
+\begin{notate}{Getting Sphinx set up} \label{sphinx-setup}
+Here are some instructions I've used to get Sphinx set
+up.
+\end{notate}
+
+\begin{notate}{Create a sphinx.conf}
+I want a very minimal sphinx.conf, this seems to work.
+(We should probably set this up so that it gets written
+to a file when the Arxana is set up.)
+\end{notate}
+
+\begin{idea}
+## Copy this to /usr/local/etc/sphinx.conf when you want
+## to use it.
+
+source strings
+{
+ type            = mysql
+ sql_host        = localhost
+ sql_user        = joe
+ sql_pass        = joe
+ sql_db          = joe
+ sql_query       = SELECT id, text FROM strings
+}
+
+## index definition
+
+index strings
+{
+ source          = strings
+ path            = /Users/planetmath/sphinx/search-testing
+ morphology      = none
+}
+
+## indexer settings
+
+indexer
+{
+ mem_limit       = 32M
+}
+
+## searchd settings
+
+searchd
+{
+ listen          = 3312
+ listen          = localhost:3307:mysql41
+ log             = /Users/planetmath/sphinx/searchd.log
+ query_log       = /Users/planetmath/sphinx/searchd_query.log
+ read_timeout    = 5
+ max_children    = 30
+ pid_file        = /Users/planetmath/sphinx/searchd.pid
+ max_matches     = 1000
+}
+\end{idea}
+
+\begin{notate}{Working from the command line}
+Then you can run commands like these.
+\end{notate}
+
+\begin{idea}
+/usr/local/bin/indexer strings
+/usr/local/bin/search "but, then"
+
+% mysql -h 127.0.0.1 -P 3307
+mysql> SELECT * FROM strings WHERE MATCH('but, then');
+\end{idea}
+
+\begin{notate}{Integrating this with Lisp}
+Since we can talk to Sphinx via Mysql
+protocol, it seems reasonable that we should be able to talk to
+it from CLSQL, too.  With a little fussing to get the format
+right, I found something that works!
+\end{notate}
+
+\begin{idea}
+(connect `("127.0.0.1" "" "" "" "3307") :database-type :mysql)
+(mapcar (lambda (elt) (floor (car elt)))
+  (query "select * from strings where match('text')"))
+\end{idea}
+
+\begin{notate}{Some added difficulty with Postgresql}
+When I try to index things on the server, I get an
+error, as below.  The question is a good one... I'm
+not sure \emph{how} postgresql is set up on the server,
+actually...
+\end{notate}
+
+\begin{idea}
+ERROR: index 'strings': sql_connect: could not connect to server:
+Connection refused
+Is the server running on host "localhost" and accepting
+TCP/IP connections on port 5432?
+\end{idea}
+
+\section{Appendix: A simple literate programming system} \label{appendix-lit}
+
+\begin{notate}{The literate programming system used in this paper}
+This code defines functions that grab all the Lisp
+portions of this document, evaluate the Emacs Lisp
+sections in Emacs, and save the Common Lisp sections in
+suitable files.\footnote{{\tt
+    Cf. http://mmm-mode.sourceforge.net/}} It requires
+that the \LaTeX\ be written in a certain consistent way.
+The function assumes that this document is the current
+buffer.
+
+\begin{verbatim}
+(defvar lit-code-beginning-regexp
+  "^\\\\begin{elisp}\\|^\\\\begin{common}{\\([^}\n]*\\)}")
+
+(defvar lit-code-end-regexp
+  "^\\\\end{elisp}\\|^\\\\end{common}")
+
+(defun lit-process ()
+  (interactive)
+  (save-excursion
+    (let ((to-buffer "*Lit Code*")
+          (from-buffer (buffer-name (current-buffer)))
+          (start-buffers (buffer-list)))
+      (set-buffer (get-buffer-create to-buffer))
+      (erase-buffer)
+      (set-buffer (get-buffer-create from-buffer))
+      (goto-char (point-min))
+      (while (re-search-forward
+              lit-code-beginning-regexp nil t)
+        (let* ((file (match-string 1))
+               (beg (match-end 0))
+               (end (save-excursion
+                      (search-forward-regexp
+                       lit-code-end-regexp nil t)
+                      (match-beginning 0)))
+               (match (buffer-substring-no-properties
+                       beg end)))
+          (let ((to-buffer
+                 (if file
+                     (concat "*Lit Code*: " file)
+                   "*Lit Code*")))
+            (save-excursion
+              (set-buffer (get-buffer-create
+                           to-buffer))
+              (insert match)))))
+      (dolist
+          (buffer (set-difference (buffer-list)
+                                  start-buffers))
+        (save-excursion
+          (set-buffer buffer)
+          (if (string= (buffer-name buffer)
+                       "*Lit Code*")
+              (eval-buffer)
+            (write-region (point-min)
+                          (point-max)
+                          (concat "~/arxana/"
+                                  (substring
+                                   (buffer-name
+                                    buffer)
+                                   12)))))
+        (kill-buffer buffer)))))
+\end{verbatim}
+\end{notate}
+
+\begin{notate}{Emacs-export?}
+It wouldn't be hard to export the Elisp sections so
+that those who wanted to could ditch the literate
+wrapper.
+\end{notate}
+
+\begin{notate}{Bidirectional updating}
+Eventually it would be nice to have a code repository set
+up, and make it so that changes to the code can get
+snarfed up here.
+\end{notate}
+
+\begin{notate}{A literate style}
+Ideally, each function will have its own Note to introduce
+it, and will not be called before it has been defined.  I
+sometimes make an exception to this rule, for example,
+functions used to form recursions may appear with no
+further introduction, and may be called before they are
+defined.
+\end{notate}
+
+\section{Appendix: Hypertext platforms} \label{appendix-hyper}
+
+\begin{notate}{The hypertextual canon} \label{canon}
+There is a core library of texts that come up in
+discussions of hypertext.
+\begin{itemize}
+% \item (Plato)
+\item The Rosetta stone
+\item The Talmud (Judah haNasi, Rav Ashi, and many others)
+\item Monadology (Wilhelm Leibniz)
+\item The Life and Opinions of Tristam Shandy, Gentleman
+  (Lawrence Sterne)
+\item Middlemarch (George Eliot)
+% \item The Gay Science (Freidrich Nietzsche)
+% \item (Wittgenstein)
+% \item (Alan Turing)
+\item The Nova Trilogy (William S. Burroughs)
+\item The Logic of Sense (Gilles Deleuze)
+% \item Open Creation and its Enemies (Asger Jorn)
+\item Labyrinths (Jorge Luis Borges)
+\item Literary Machines (Ted Nelson)
+% \item Simulation and Simulacra (Jean Baudrillard)
+\item Lila (Robert M. Pirsig)
+% \item \TeX: the program (Donald Knuth)
+\item Dirk Gently's Holistic Detective Agency
+  (Douglas Adams)
+\item Pussy, King of the Pirates (Kathy Acker)
+% \item Rachel Blau DuPlessis,
+% \item Emily Dickinson
+% \item Gertrude Stein
+% \item Zora Neale Hurston
+\end{itemize}
+At the same time, it is somewhat ironic that none of the
+items on this list are themselves hypertexts in the
+contemporary sense of the word.  It's also a bit funny
+that certain other works (even some by the same authors)
+aren't on this list.  Perhaps we begin to get a sense of
+what's going on in this quote from Kathleen
+Burnett:\footnote{{\tt http://www.iath.virginia.edu/pmc/text-only/issue.193/burnett.193}}
+\begin{quote}
+``Multiplicity, as a hypertextual principle, recognizes a
+  multiplicity of relationships beyond the canonical
+  (hierarchical).  Thus, the traditional concept of
+  literary authorship comes under attack from two
+  quarters--as connectivity blurs the boundary between
+  author and reader, multiplicity problematizes the
+  hierarchy that is canonicity.''
+\end{quote}
+It seems quite telling that non-hypertextual canons remain
+mostly-non-hypertextual even today, despite the existence
+of catalogs, indexes, and online access.\footnote{{\tt
+    http://www.gutenberg.org/wiki/Category:Bookshelf}}
+\end{notate}
+
+\begin{notate}{A geek's guide to literature}
+This title is a riff on Slasov \v{Z}i\v{z}ek's ``A
+pervert's guide to cinema''.  Taking Note \ref{canon} as a
+jumping-off point, why don't we make a survey of
+historical texts from the point of view of an aficionado
+of hypertext!  Just what does one have to do to ``get on
+the list''?  Just what is ``the hypertextual
+perspective''?  And, if \v{Z}i\v{z}ek is correct and we're
+to look for the hyperreal in the world of cinematic
+fictions -- what's left over for the world of literature?
+(Or mathematics?)
+\end{notate}
+
+\begin{notate}{The number 3}
+This is the number of things present if we count carefully
+the items $A$, $B$, and a connection $C$ between them.
+[Picture of $A\xrightarrow{C} B$.]
+
+(Or even: given $A$ and $B$, we use Wittgenstein counting,
+and \emph{intuit} that $C$ exists as the collection $\{A,
+B\}$; after all,
+  some connection must exist precisely because we were
+  presented with $A$ and $B$ together -- and lest the
+  connections proliferate infinitely, we lump them all
+  together as one.  [Picture of $A$, $B$,
+    with the \emph{frame} labeled $C$.])
+\end{notate}
+
+\begin{notate}{Surfaces}
+Deleuze talks about a theory of surfaces associated with
+verbs and events.  His surfaces represent the evanescence
+of events in time, and of their descriptions in language.
+An event is seen as a vanishingly-thin boundary between
+one state of being and another.
+
+Certainly, a statement that is true \emph{now} may not be
+true five minutes from now.  It is easier to think and
+talk about things that are coming up and things that have
+already happened.  ``Living in the moment'' is regarded as
+special or even ``Zen''.
+
+We can begin to put these musings on a more solid
+mathematical basis.  We first examine two types of
+\emph{interfaces}:
+\begin{enumerate}
+\item $A\xrightarrow{C} B$, $A\xrightarrow{D} B$,
+  $A\xrightarrow{E} B$
+  (the interface of $A$ and $B$ across $C$, $D$, and $E$);
+\item $A\xrightarrow{C} B$, $D\xrightarrow{C} E$,
+  $F\xrightarrow{C} G$
+  (the interface of various terms across $C$).
+\end{enumerate}
+\end{notate}
+
+\begin{notate}{Comic books}
+No geek's guide to literature would be complete without
+putting comics in a hallowed place.  [Framed picture of
+  $A$, $B$ next to framed
+  picture of $A$, $B$, $a$.]  What happened?
+  $\ddot{\smile}$
+\end{notate}
+
+\begin{notate}{Intersecting triples}
+Diagrammatically, it is tempting to portray
+$(ACB)_{\mathrm{mid}}DE$ as if it was closely related to
+$A(CDE)_{\mathrm{beg}}B$, despite the fact that they are
+notationally very different.  I'll have to think more
+about what this means.
+\end{notate}
+
+\section{Appendix: Computational Linguistics} \label{appendix-linguistics}
+
+\begin{notate}{What is this?}
+It might be reasonable to make annotating sentences part
+of our writeup on hypertext platforms -- but I'm putting
+it here for now.  If hypertext is what deals with language
+artifacts on the ``bulky'' level (saying, for example,
+that a subsection is part of a section, and so on), then
+computational linguistics is what deals with the finer
+levels.  However, the distinction is in some ways
+arbitrary, and many of the techniques should be at least
+vaguely similar.
+\end{notate}
+
+\begin{notate}{Annotation sensibilities}\label{sense}
+We will want to be able to make at least two different
+kinds of annotations of verbs.  For example, given the
+statement
+\begin{itemize}
+\item[$S$.] (``Who'' ``is on'' ``first''),
+\end{itemize}
+I'd like to be able to say
+\begin{itemize}
+\item[I.](``is on'' ``means'' ``the position of a base runner in baseball'').
+\end{itemize}
+However, I'd also like to be able to say
+\begin{itemize}
+\item[II.] (``is on'' ``because'' ``he was walked'').
+\end{itemize}
+Annotation I is meant to apply to the term ``is on''
+itself (in a context that might be more general than just
+this one sentence).  If Who is also on steroids, that's
+another matter -- as this type of annotation helps make
+clear!
+
+Annotation II is meant to apply to the term ``is on''
+\emph{as it
+  appears in sentence $S$}.  In particular, Annotation II
+seems to work best in a context in which we've already
+accepted the ontological status of the verb-phrase ``is
+on first''.
+
+Whereas Annotation I should presumably exist before
+statement $S$ is ever made (and it certainly helps make
+that statement make sense), Annotation II is most properly
+understood with reference to the fully-formed statement
+$S$.  However, Annotation II is different from a statement
+like ($S$ ``has truth value'' $F$) in that it looks into
+the guts of $S$.
+\end{notate}
+
+\begin{notate}{Comparison of places and ontological status} \label{places-and-onto-status}
+The difference between (I) a ``global'' annotation, and
+(II) the annotation of a specific sentence is analogous to
+the difference between (a) relationships between objects
+without a place, and (b) relationships between objects in
+specific places.  (Cf. Note \ref{sense}: ``global''
+statements are of course made ``local'' by the theories
+that scope them.)
+
+For example, in a descriptive ontology of research
+documents, I might make the ``placeless'' statement,
+\begin{itemize}
+\item[a.] (``Introduction'' ``names'' ``a section'')
+\end{itemize}
+On the other hand, the statement
+\begin{itemize}
+\item[b.] (``Introduction'' ``has subject'' ``American
+  History''),
+\end{itemize}
+seems likely to be about a specific Introduction.  (And
+somewhere in the backend, this triple should be expressed
+in terms of places!)
+\end{notate}
+
+\begin{notate}{Semantics}
+In a sentence like
+\begin{quote}
+(((``I'' ``saw'' ``myself'')$_{\mathrm{mid}}$ ``as if''
+  ``through a glass'')$_{\mathrm{beg}}$ ``but'' ``darkly'')
+\end{quote}
+first of all, there may be different parenthesizations,
+and second of all, the semantics of links like ``as if''
+and ``but'' may shape, to some extent, the ways in
+which we parethesize.
+\end{notate}
+
+\section{Appendix: Resource use} \label{appendix-resources}
+
+\begin{notate}{Free culture in action}
+I thought it worthwhile to include this quote from
+a joint paper with Aaron Krowne:\footnote{See Footnote
+\ref{corneli-krowne}.}
+\begin{quote}
+``[F]ree content typically
+  manifests aspects of a common resource as well as an
+  open access resource; while anyone can do essentially
+  whatever they wish with the content offline, in its
+  online life, the content is managed in a
+  socially-mediated way.  In particular, rights to
+  \emph{in situ} modification tend to be strictly
+  controlled. [...]  By finding new ways to support
+  freedom of speech within CBPP documents, we embrace
+  subjectivity as a way to enhance the content of an
+  intersubjectively valued corpus.  In the context of
+  ``hackable'' media and maintenance protocols, the
+  semantics with which scholia are handled can be improved
+  upon indefinitely on a user-by-user basis and a
+  resource-wide basis.  This is free culture in action.''
+\end{quote}
+\end{notate}
+
+\begin{notate}{Learning}
+The learner, confronted with a learning resource, or the
+consumer of any other information resource (or indeed,
+practically any resource whatsoever) may want a chance to
+respond to the questions ``was this what you were looking
+for?'' and ``did you find this helpful?''.  In some cases,
+an independent answer to that question could be generated
+(e.g. if a student is seen to come up with a correct
+answer, or not).
+\end{notate}
+
+\begin{notate}{Connections}
+A useful communication goal is to expose some of the
+connections between disparate resources.  Some existing
+connections may be far more explicit than others.  It's
+important to facilitate the making and explicating of
+connections by ``third parties'' (Note
+\ref{browser-within}).  The search for connections between
+ostensibly unrelated things is a key part of both
+creativity and learning.  In addition, connecting with
+what others are doing is an important part of being a
+social animal.
+\end{notate}
+
+\begin{notate}{Boundaries}
+Notice that the departmentalization of knowledge is
+similar to any regime that oversees and administers
+boundaries.  In addition to bridging different areas,
+learning often involves pushing one's boundaries and
+getting out of one's comfort zone.  The ``sociological
+imagination'' involves seeing oneself as part of something
+bigger; this goes along with the idea of a discourse that
+lowers or transcends the boundaries between participants.
+Imagination of any form can challenge myopic patterns of
+resource use, although there are also myopic fictions
+which neglect to look at what's going on in reality!
+\end{notate}
+
+\end{document}
